@@ -1,0 +1,18 @@
+# Environment secrets — NEVER commit
+.env
+.env.local
+.env.production
+server/config/config.local.php
+
+# Runtime data
+uploads/
+backups/
+web/dist/
+web/node_modules/
+mobile/node_modules/
+
+# Editor
+.DS_Store
+.vscode/
+.idea/
+*.swp

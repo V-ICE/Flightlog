@@ -1,0 +1,75 @@
+# ============================================================
+# UAVLogBook — Dockerfile for Synology DS412+ (DSM 6.2)
+#
+# Base:    php:7.4-apache
+# Reason:  php:8.2 requires glibc features not available on
+#          Synology's custom kernel 3.10.x build.
+#          php:7.4 is the last version with full kernel 3.10
+#          compatibility.
+#
+# MariaDB note: The PHP code uses PDO/MySQL which is fully
+#          compatible with MariaDB 10.6 — no code changes needed.
+# ============================================================
+
+FROM php:7.4-apache
+
+LABEL description="UAVLogBook for Synology DS412+ DSM 6.2"
+
+# System packages — keep minimal for the Atom D2700
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpng-dev \
+    libjpeg-dev \
+    libwebp-dev \
+    libzip-dev \
+    libonig-dev \
+    libxml2-dev \
+    libcurl4-openssl-dev \
+    curl \
+    unzip \
+    && docker-php-ext-configure gd --with-jpeg --with-webp \
+    && docker-php-ext-install -j2 \
+        pdo \
+        pdo_mysql \
+        mbstring \
+        zip \
+        gd \
+        curl \
+        opcache \
+        bcmath \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# NOTE: ffmpeg is intentionally omitted — too large for the DS412+ and
+# the PHP pure-MP4-atom parser handles video metadata without it.
+# Video thumbnails will simply not be generated (no functional impact).
+
+# Enable Apache modules
+RUN a2enmod rewrite headers expires deflate
+
+# PHP runtime config
+RUN echo "upload_max_filesize = 8192M"   >> /usr/local/etc/php/conf.d/uavlogbook.ini \
+ && echo "post_max_size = 8192M"         >> /usr/local/etc/php/conf.d/uavlogbook.ini \
+ && echo "max_execution_time = 600"      >> /usr/local/etc/php/conf.d/uavlogbook.ini \
+ && echo "max_input_time = 600"          >> /usr/local/etc/php/conf.d/uavlogbook.ini \
+ && echo "memory_limit = 256M"           >> /usr/local/etc/php/conf.d/uavlogbook.ini \
+ && echo "expose_php = Off"              >> /usr/local/etc/php/conf.d/uavlogbook.ini \
+ && echo "display_errors = Off"          >> /usr/local/etc/php/conf.d/uavlogbook.ini \
+ && echo "log_errors = On"               >> /usr/local/etc/php/conf.d/uavlogbook.ini \
+ && echo "date.timezone = UTC"           >> /usr/local/etc/php/conf.d/uavlogbook.ini
+
+# Opcache — conservative settings for Atom D2700
+RUN echo "opcache.enable=1"                    >> /usr/local/etc/php/conf.d/uavlogbook.ini \
+ && echo "opcache.memory_consumption=64"        >> /usr/local/etc/php/conf.d/uavlogbook.ini \
+ && echo "opcache.interned_strings_buffer=8"    >> /usr/local/etc/php/conf.d/uavlogbook.ini \
+ && echo "opcache.max_accelerated_files=2000"   >> /usr/local/etc/php/conf.d/uavlogbook.ini \
+ && echo "opcache.validate_timestamps=0"        >> /usr/local/etc/php/conf.d/uavlogbook.ini
+
+# Upload directories
+RUN mkdir -p /var/www/uploads/logs /var/www/uploads/videos \
+ && chown -R www-data:www-data /var/www/uploads \
+ && chmod -R 755 /var/www/uploads
+
+# Apache config
+COPY apache-synology.conf /etc/apache2/sites-enabled/000-default.conf
+
+EXPOSE 80

@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "UAVLogBook",
+    "slug": "uavlogbook",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#060D1A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.uavlogbook.app",
+      "infoPlist": {
+        "NSDocumentPickerDescription": "UAVLogBook needs access to your flight log files",
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#060D1A"
+      },
+      "package": "com.uavlogbook.app",
+      "permissions": ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-document-picker",
+      [
+        "expo-build-properties",
+        {
+          "android": { "compileSdkVersion": 34, "targetSdkVersion": 34 },
+          "ios": { "deploymentTarget": "15.1" }
+        }
+      ]
+    ],
+    "scheme": "uavlogbook",
+    "extra": {
+      "eas": { "projectId": "YOUR_EAS_PROJECT_ID" }
+    }
+  }
+}

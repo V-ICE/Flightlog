@@ -1,0 +1,60 @@
+################################################################################
+# UAVLogBook — Development Compose Override
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#   (or alias: make dev)
+#
+# Differences from production:
+#   - No Nginx (access app directly on :8080)
+#   - Server source mounted read-write (live PHP edits without rebuild)
+#   - Vite dev server on :3000 with HMR (hot module replacement)
+#   - XDEBUG enabled on port 9003
+#   - MySQL port exposed on :3306 for local DB clients (TablePlus, DBeaver)
+#   - Relaxed CORS (all origins allowed)
+#   - Builder skipped (Vite dev server handles web app)
+################################################################################
+
+services:
+
+  db:
+    ports:
+      - "3306:3306"   # expose MySQL for local DB tools in dev
+
+  app:
+    build:
+      target: development   # use dev stage in Dockerfile (includes Xdebug)
+    volumes:
+      # Read-WRITE in dev so PHP changes reflect instantly (no container rebuild)
+      - ./server:/var/www/html/api
+      - uploads_logs:/var/www/uploads/logs
+      - uploads_videos:/var/www/uploads/videos
+    environment:
+      UAVLOG_ALLOWED_ORIGINS: "*"
+      PHP_DISPLAY_ERRORS: "On"
+      PHP_ERROR_REPORTING: "E_ALL"
+      XDEBUG_MODE: debug
+      XDEBUG_CONFIG: "client_host=host.docker.internal client_port=9003"
+    ports:
+      - "8080:80"
+
+  # Vite dev server — HMR, no build step needed
+  webdev:
+    image: node:20-alpine
+    container_name: uavlogbook_webdev
+    working_dir: /app
+    volumes:
+      - ./web:/app
+    environment:
+      VITE_API_URL: http://localhost:8080/api/v1
+      NODE_ENV: development
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 3000"
+    ports:
+      - "3000:3000"
+    networks:
+      - external
+
+  # Override builder — skip it entirely in dev (Vite handles the web app)
+  builder:
+    profiles:
+      - skip   # never starts in dev compose

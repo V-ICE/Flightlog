@@ -1,0 +1,58 @@
+# ============================================================
+# UAVLogBook — .dockerignore
+# Keeps Docker build context small and fast.
+# ============================================================
+
+# Node
+web/node_modules
+mobile/node_modules
+**/node_modules
+
+# Build artifacts
+web/dist
+**/.cache
+
+# Git
+.git
+.gitignore
+**/.gitattributes
+
+# Environment (NEVER include secrets in image)
+.env
+.env.local
+.env.production
+**/.env*
+!.env.example
+
+# Local config overrides
+server/config/config.local.php
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode
+.idea
+
+# Documentation and scripts not needed in image
+README.md
+QUICKSTART.txt
+Makefile
+*.pdf
+*.zip
+
+# Logs and uploads (runtime data — use volumes)
+server/uploads
+uploads
+backups
+
+# Mobile app (not needed in server image)
+mobile
+
+# Installer (not needed in image)
+installer
+
+# Docker configs themselves (avoid recursive)
+docker
+docker-compose*.yml

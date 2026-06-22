@@ -1,0 +1,37 @@
+UAVLogBook v1.2 — Quick Start
+==============================
+
+DOCUMENTATION — all guides are in docs/
+  docs/UAVLogBook_Install_Guide.pdf          ← cPanel hosting
+  docs/UAVLogBook_Ubuntu_Docker_Install.pdf  ← Docker on Ubuntu (start here)
+  docs/UAVLogBook_PC_Docker_Install.pdf      ← Docker on Windows/macOS
+  docs/UAVLogBook_Docker_Install.pdf         ← Docker generic (all platforms)
+  docs/UAVLogBook_Synology_DS412_Docker.pdf  ← Docker on Synology DS412+
+  docs/DS412_RAM_Upgrade_Guide.pdf           ← DS412+ RAM upgrade guide
+
+FASTEST START (Ubuntu with Docker):
+  1. Install Docker:  curl -fsSL https://get.docker.com | sh
+  2. cd uavlogbook_v3
+  3. cp .env.example .env
+  4. Edit .env — set MYSQL_ROOT_PASSWORD, MYSQL_PASSWORD, JWT_SECRET
+     (generate JWT_SECRET: openssl rand -hex 32)
+  5. make dev
+  6. Open http://localhost:3000
+
+FASTEST START (cPanel hosting):
+  1. SSH into cPanel: bash installer/install_server.sh
+  2. Build web app on your computer: bash installer/build_web.sh
+  3. Upload web/dist/* to public_html/
+
+SUPPORTED LOG FORMATS:
+  .BIN .TLOG .ULG .SKYLOG .TXT .CSV .GPX .KML .BBL
+
+SUPPORTED VIDEO FORMATS (FPV sync):
+  .MP4 .MOV .AVI .MKV .WebM .MPG .3GP (up to 8 GB)
+
+NEW IN v1.2:
+  - FPV video upload and time-sync module
+  - Auto time-sync from MP4 metadata or filename timestamp
+  - Manual frame-accurate correction (33ms precision)
+  - Synology DS412+ Docker support
+  - Docker production stack with Nginx + SSL

@@ -1,0 +1,100 @@
+################################################################################
+# UAVLogBook — Synology DS412+ Docker Compose
+#
+# DESIGNED FOR:
+#   Synology DS412+ · DSM 6.2 · Docker package 20.10.3
+#   Kernel 3.10.x · x86_64 · docker-compose v1 (hyphen, NOT space)
+#
+# IMPORTANT DIFFERENCES FROM GENERIC DOCKER SETUP:
+#   - Uses Compose version '2' (not '3') — required for DSM 6.2
+#   - Uses mariadb:10.6 instead of mysql:8.0 (tested on kernel 3.10)
+#   - Uses php:7.4-apache instead of php:8.2 (glibc compatible with DSM 6.2)
+#   - No 'service_completed_successfully' — Compose v1 does not support it
+#   - No 'profiles' — Compose v1 does not support them
+#   - No Nginx — Apache handles everything directly
+#   - Volumes stored under /volume1/docker/ — Synology convention
+#   - Web app is pre-built; place dist/ files in synology/www/ before starting
+#   - Run with: docker-compose up -d  (hyphen, not space)
+#
+# HOW TO RUN:
+#   1. SSH into Synology:  ssh admin@192.168.1.x
+#   2. cd /volume1/docker/uavlogbook
+#   3. docker-compose up -d
+#   4. Wait ~2 minutes for MariaDB to initialise
+#   5. Open http://your-nas-ip:8080
+#
+################################################################################
+
+version: '2'
+
+services:
+
+  # ── MariaDB 10.6 (replaces MySQL 8.0 — works on kernel 3.10) ──
+  db:
+    image: mariadb:10.6
+    container_name: uavlogbook_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE:      ${MYSQL_DATABASE:-uavlogbook}
+      MYSQL_USER:          ${MYSQL_USER:-uavlogbook_user}
+      MYSQL_PASSWORD:      ${MYSQL_PASSWORD}
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER:     utf8mb4_unicode_ci
+    volumes:
+      # Database files — persisted on NAS disk
+      - /volume1/docker/uavlogbook/db:/var/lib/mysql
+      # Schema auto-imported on first run (only runs when db/ is empty)
+      - /volume1/docker/uavlogbook/init:/docker-entrypoint-initdb.d:ro
+    # MariaDB tuned for Atom D2700 + limited RAM
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max_allowed_packet=256M
+      --innodb_buffer_pool_size=128M
+      --innodb_log_file_size=32M
+      --bulk_insert_buffer_size=32M
+      --max_connections=50
+      --key_buffer_size=32M
+    networks:
+      - uavlogbook_net
+
+  # ── PHP 7.4 + Apache (replaces PHP 8.2 — compatible with DSM 6.2) ─
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.synology
+    container_name: uavlogbook_app
+    restart: unless-stopped
+    # Simple depends_on — Compose v1 has no condition syntax
+    # The app retries DB connection automatically via PHP PDO
+    depends_on:
+      - db
+    environment:
+      UAVLOG_DB_HOST:     db
+      UAVLOG_DB_NAME:     ${MYSQL_DATABASE:-uavlogbook}
+      UAVLOG_DB_USER:     ${MYSQL_USER:-uavlogbook_user}
+      UAVLOG_DB_PASS:     ${MYSQL_PASSWORD}
+      UAVLOG_JWT_SECRET:  ${JWT_SECRET}
+      ANTHROPIC_API_KEY:  ${ANTHROPIC_API_KEY:-}
+      UAVLOG_ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
+      PHP_MEMORY_LIMIT:   256M
+      PHP_UPLOAD_MAX_FILESIZE: 8192M
+      PHP_POST_MAX_SIZE:   8192M
+      PHP_MAX_EXECUTION_TIME: 600
+    volumes:
+      # PHP source code
+      - /volume1/docker/uavlogbook/server:/var/www/html/api:ro
+      # Built React web app — copy your web/dist/ contents here
+      - /volume1/docker/uavlogbook/www:/var/www/html:ro
+      # Uploads — persistent, writable
+      - /volume1/docker/uavlogbook/uploads/logs:/var/www/uploads/logs
+      - /volume1/docker/uavlogbook/uploads/videos:/var/www/uploads/videos
+    ports:
+      - "${APP_PORT:-8080}:80"
+    networks:
+      - uavlogbook_net
+
+networks:
+  uavlogbook_net:
+    driver: bridge
