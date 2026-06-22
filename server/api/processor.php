@@ -49,8 +49,9 @@ class FlightProcessor {
             // Step 7: Update flight record with stats
             DB::query("UPDATE flights SET
                 parse_status='complete',
-                flight_date=?, duration_sec=?, max_altitude_m=?,
-                max_speed_ms=?, max_distance_m=?, total_distance_m=?,
+                flight_date=?, duration_sec=?, flight_duration_sec=?, idle_before_sec=?,
+                takeoff_ms=?, landing_ms=?,
+                max_altitude_m=?, max_speed_ms=?, max_distance_m=?, total_distance_m=?,
                 home_lat=?, home_lng=?, bounding_box=?,
                 min_battery_v=?, max_battery_v=?,
                 warning_count=?, error_count=?,
@@ -58,6 +59,10 @@ class FlightProcessor {
                 WHERE id=?", [
                 $stats['flight_date'],
                 $stats['duration_sec'],
+                $stats['flight_duration_sec'],
+                $stats['idle_before_sec'],
+                $stats['takeoff_ms'],
+                $stats['landing_ms'],
                 $stats['max_altitude_m'],
                 $stats['max_speed_ms'],
                 $stats['max_distance_m'],
@@ -139,25 +144,88 @@ class FlightProcessor {
             $prevLat = $pt['lat']; $prevLng = $pt['lng'];
         }
 
+        // Detect takeoff and landing by altitude+speed threshold
+        [$takeoffMs, $landingMs] = $this->detectTakeoffLanding($gps);
+
         $voltages = array_filter(array_column($batt, 'voltage_v'));
         $warnings = count(array_filter($events, fn($e) => $e['severity'] === 'warning'));
         $errors   = count(array_filter($events, fn($e) => $e['severity'] === 'error' || $e['severity'] === 'critical'));
 
+        $totalDurationSec = $startMs !== null ? (int)(($endMs - $startMs) / 1000) : 0;
+        $flightDurationSec = ($takeoffMs !== null && $landingMs !== null)
+            ? (int)(($landingMs - $takeoffMs) / 1000)
+            : $totalDurationSec;
+        $idleBeforeSec = ($takeoffMs !== null && $startMs !== null)
+            ? (int)(($takeoffMs - $startMs) / 1000)
+            : 0;
+
         return [
-            'flight_date'   => $flightDate ?? date('Y-m-d H:i:s'),
-            'duration_sec'  => $startMs !== null ? (int)(($endMs - $startMs) / 1000) : 0,
-            'max_altitude_m'=> round($maxAlt, 2),
-            'max_speed_ms'  => round($maxSpd, 2),
-            'max_distance_m'=> round($maxDist, 2),
+            'flight_date'      => $flightDate ?? date('Y-m-d H:i:s'),
+            'duration_sec'     => $totalDurationSec,
+            'flight_duration_sec' => $flightDurationSec,
+            'idle_before_sec'  => $idleBeforeSec,
+            'takeoff_ms'       => $takeoffMs,
+            'landing_ms'       => $landingMs,
+            'max_altitude_m'   => round($maxAlt, 2),
+            'max_speed_ms'     => round($maxSpd, 2),
+            'max_distance_m'   => round($maxDist, 2),
             'total_distance_m' => round($totalDist, 2),
-            'home_lat'      => $homeLat,
-            'home_lng'      => $homeLng,
-            'bounding_box'  => ['min_lat'=>$minLat,'max_lat'=>$maxLat,'min_lng'=>$minLng,'max_lng'=>$maxLng],
-            'min_battery_v' => $voltages ? round(min($voltages), 3) : null,
-            'max_battery_v' => $voltages ? round(max($voltages), 3) : null,
-            'warning_count' => $warnings,
-            'error_count'   => $errors,
+            'home_lat'         => $homeLat,
+            'home_lng'         => $homeLng,
+            'bounding_box'     => ['min_lat'=>$minLat,'max_lat'=>$maxLat,'min_lng'=>$minLng,'max_lng'=>$maxLng],
+            'min_battery_v'    => $voltages ? round(min($voltages), 3) : null,
+            'max_battery_v'    => $voltages ? round(max($voltages), 3) : null,
+            'warning_count'    => $warnings,
+            'error_count'      => $errors,
         ];
+    }
+
+    // Detect takeoff (first sustained altitude gain) and landing (last moment above threshold)
+    // Returns [takeoff_ms, landing_ms] or [null, null] if not detectable
+    private function detectTakeoffLanding(array $gps): array {
+        if (count($gps) < 10) return [null, null];
+
+        // Home altitude = median of first 10 points with valid alt
+        $homeAlts = [];
+        foreach (array_slice($gps, 0, 20) as $pt) {
+            if (($pt['alt_m'] ?? null) !== null) $homeAlts[] = (float)$pt['alt_m'];
+            if (count($homeAlts) >= 10) break;
+        }
+        if (!$homeAlts) return [null, null];
+        sort($homeAlts);
+        $homeAlt = $homeAlts[(int)(count($homeAlts) / 2)]; // median
+
+        $altThreshold = $homeAlt + 5.0;  // 5m above home = flying
+        $spdThreshold = 1.0;             // 1 m/s minimum speed
+
+        // Find takeoff: first run of 3+ consecutive points above thresholds
+        $takeoffMs = null;
+        $streak = 0;
+        $streakStart = null;
+        foreach ($gps as $pt) {
+            $alt = (float)($pt['alt_m'] ?? 0);
+            $spd = (float)($pt['speed_ms'] ?? 0);
+            if ($alt > $altThreshold && $spd > $spdThreshold) {
+                if ($streak === 0) $streakStart = $pt['t_ms'];
+                $streak++;
+                if ($streak >= 3) { $takeoffMs = $streakStart; break; }
+            } else {
+                $streak = 0; $streakStart = null;
+            }
+        }
+
+        // Find landing: last point above thresholds (scan backwards)
+        $landingMs = null;
+        foreach (array_reverse($gps) as $pt) {
+            $alt = (float)($pt['alt_m'] ?? 0);
+            $spd = (float)($pt['speed_ms'] ?? 0);
+            if ($alt > $altThreshold || $spd > $spdThreshold) {
+                $landingMs = $pt['t_ms'];
+                break;
+            }
+        }
+
+        return [$takeoffMs, $landingMs];
     }
 
     private function downsample(array $data, int $maxPoints): array {

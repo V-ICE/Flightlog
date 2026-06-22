@@ -443,7 +443,9 @@ function updateViewPrefs(array $user, array $body): array {
 
 function getDashboardStats(array $user): array {
     $uid = $user['sub'];
-    $totals = DB::query("SELECT COUNT(*) flights, COALESCE(SUM(duration_sec),0) total_time,
+    $totals = DB::query("SELECT COUNT(*) flights,
+        COALESCE(SUM(COALESCE(flight_duration_sec, duration_sec)),0) total_time,
+        COALESCE(SUM(COALESCE(idle_before_sec,0)),0) total_idle_time,
         COALESCE(SUM(total_distance_m),0) total_dist, COALESCE(MAX(max_altitude_m),0) max_alt,
         COALESCE(MAX(max_speed_ms),0) max_speed
         FROM flights WHERE user_id=? AND parse_status='complete'", [$uid])->fetch();

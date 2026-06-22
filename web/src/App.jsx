@@ -296,7 +296,9 @@ const EventsModule = ({ data }) => {
 const StatsModule = ({ flightData }) => {
   const stats = flightData || {};
   const cards = [
-    { label: 'Duration',       value: formatDuration(stats.duration_sec), icon: Clock,     color: '#3B82F6' },
+    { label: 'Flight Time',    value: stats.flight_duration_sec ? formatDuration(stats.flight_duration_sec) : formatDuration(stats.duration_sec), icon: Clock, color: '#3B82F6' },
+    { label: 'Idle Before',   value: stats.idle_before_sec > 0 ? formatDuration(stats.idle_before_sec) : '—', icon: Clock, color: '#475569' },
+    { label: 'Total Duration', value: formatDuration(stats.duration_sec), icon: Clock,     color: '#64748B' },
     { label: 'Max Altitude',   value: stats.max_altitude_m ? `${parseFloat(stats.max_altitude_m).toFixed(1)}m` : '—', icon: MountainSnow, color: '#10B981' },
     { label: 'Max Speed',      value: stats.max_speed_ms ? `${parseFloat(stats.max_speed_ms).toFixed(1)} m/s` : '—', icon: Gauge,    color: '#F59E0B' },
     { label: 'Max Distance',   value: stats.max_distance_m ? `${parseFloat(stats.max_distance_m).toFixed(0)}m` : '—', icon: Globe,    color: '#8B5CF6' },
@@ -518,7 +520,10 @@ const FlightList = ({ onSelect, refresh }) => {
           </div>
           <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#475569' }}>
             <span>{f.flight_date?.slice(0, 10) || '—'}</span>
-            <span>{formatDuration(f.duration_sec)}</span>
+            <span title={f.idle_before_sec > 0 ? `+${formatDuration(f.idle_before_sec)} idle` : undefined}>
+              {formatDuration(f.flight_duration_sec || f.duration_sec)}
+              {f.idle_before_sec > 0 && <span style={{ color: '#475569', fontSize: 10, marginLeft: 3 }}>+{formatDuration(f.idle_before_sec)} idle</span>}
+            </span>
             <span>{f.max_altitude_m ? `${parseFloat(f.max_altitude_m).toFixed(0)}m` : '—'}</span>
             <span style={{ color: fmtColors[f.log_format] || '#64748B', fontWeight: 600, marginLeft: 'auto' }}>{(f.log_format || '?').replace(/_/g, ' ').toUpperCase()}</span>
           </div>
@@ -824,7 +829,8 @@ export default function App() {
                 </div>
                 {[
                   { label: 'Date',     value: selectedFlight.flight_date?.slice(0,10) || '—' },
-                  { label: 'Duration', value: formatDuration(selectedFlight.duration_sec) },
+                  { label: 'Flight Time', value: formatDuration(selectedFlight.flight_duration_sec || selectedFlight.duration_sec) },
+                  { label: 'Idle Before', value: selectedFlight.idle_before_sec > 0 ? formatDuration(selectedFlight.idle_before_sec) : '—' },
                   { label: 'Max Alt',  value: selectedFlight.max_altitude_m ? `${parseFloat(selectedFlight.max_altitude_m).toFixed(0)}m` : '—' },
                   { label: 'Max Speed',value: selectedFlight.max_speed_ms ? `${parseFloat(selectedFlight.max_speed_ms).toFixed(1)}m/s` : '—' },
                   { label: 'Warnings', value: selectedFlight.warning_count ?? 0, color: selectedFlight.warning_count > 0 ? '#F59E0B' : '#10B981' },

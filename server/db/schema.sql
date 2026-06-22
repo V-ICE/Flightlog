@@ -63,7 +63,11 @@ CREATE TABLE IF NOT EXISTS `flights` (
   `ai_analysis`      JSON DEFAULT NULL,          -- AI-detected format info, anomalies
   -- Flight metadata (extracted from log)
   `flight_date`      DATETIME DEFAULT NULL,
-  `duration_sec`     MEDIUMINT UNSIGNED DEFAULT NULL,
+  `duration_sec`        MEDIUMINT UNSIGNED DEFAULT NULL,
+  `flight_duration_sec` MEDIUMINT UNSIGNED DEFAULT NULL,
+  `idle_before_sec`     MEDIUMINT UNSIGNED DEFAULT NULL,
+  `takeoff_ms`          BIGINT UNSIGNED DEFAULT NULL,
+  `landing_ms`          BIGINT UNSIGNED DEFAULT NULL,
   `max_altitude_m`   DECIMAL(8,2) DEFAULT NULL,
   `max_speed_ms`     DECIMAL(6,2) DEFAULT NULL,
   `max_distance_m`   DECIMAL(8,2) DEFAULT NULL,
