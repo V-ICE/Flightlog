@@ -438,7 +438,7 @@ function createAircraft(array $user, array $body): array {
         'firmware_ver'  => $body['firmware_ver'] ?? null,
         'notes'         => $body['notes'] ?? null,
         'status'        => $body['status'] ?? 'active',
-        'purchase_date' => $body['purchase_date'] ?? null,
+        'purchase_date' => ($body['purchase_date'] ?? '') ?: null,
         'specs'         => isset($body['specs']) ? json_encode($body['specs']) : null,
     ];
     foreach ($numericFields as $f) {
@@ -460,6 +460,8 @@ function updateAircraft(array $user, int $id, array $body): array {
             $updates[$f] = is_array($body[$f]) ? json_encode($body[$f]) : $body[$f];
         } elseif (in_array($f, $numericFields)) {
             $updates[$f] = ($body[$f] !== null && $body[$f] !== '') ? (int)$body[$f] : null;
+        } elseif ($f === 'purchase_date') {
+            $updates[$f] = ($body[$f] ?? '') ?: null;
         } else {
             $updates[$f] = $body[$f];
         }
