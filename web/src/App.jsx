@@ -20,6 +20,7 @@ import {
 import { VideoSyncModule } from "./VideoSync.jsx";
 import { useUIStore } from './store.js';
 import { themes, applyTheme } from './themes.js';
+import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip as LeafletTooltip, useMap } from 'react-leaflet';
 import { formatCoord, parseCoord, COORD_FORMATS } from './coords.js';
 
 // ── Minimal in-memory state (no localStorage) ────────────────
@@ -230,91 +231,121 @@ const HomePositionPicker = ({ flightId, onConfirm }) => {
   );
 };
 
-// ── Module: Flight Map (Leaflet-style SVG demo) ───────────────
+// ── Tile layer definitions ────────────────────────────────────
+const TILE_LAYERS = {
+  Satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+    maxZoom: 19,
+  },
+  Terrain: {
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> contributors',
+    maxZoom: 17,
+  },
+  Streets: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+  },
+};
+
+// Fits map to GPS bounds on mount
+const FitBounds = ({ positions, homeOnly }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (homeOnly && positions.length === 1) {
+      map.setView(positions[0], 14);
+    } else if (positions.length > 1) {
+      map.fitBounds(positions, { padding: [24, 24] });
+    }
+  }, []);
+  return null;
+};
+
+// ── Module: Flight Map ────────────────────────────────────────
 const MapModule = ({ data, flightData }) => {
   const [manualHome, setManualHome] = useState(null);
+  const [tileStyle, setTileStyle] = useState('Satellite');
   const rawGps = data?.gps || [];
-  // Filter out points with no valid coordinates
   const gps = rawGps.filter(p => p.lat != null && p.lng != null && !isNaN(p.lat) && !isNaN(p.lng));
 
-  if (!gps.length) return (
-    <HomePositionPicker
-      flightId={flightData?.id}
-      onConfirm={(pos) => setManualHome(pos)}
-    />
+  if (!gps.length && !manualHome) return (
+    <HomePositionPicker flightId={flightData?.id} onConfirm={setManualHome} />
   );
 
-  // If we only have a home pin (manual), skip the track rendering below
   const homeOnly = gps.length < 2;
+  const positions = gps.length
+    ? gps.map(p => [p.lat, p.lng])
+    : [[manualHome.lat, manualHome.lng]];
 
-  // Use manualHome as single point if no real GPS track
-  const displayGps = gps.length ? gps : (manualHome ? [{ lat: manualHome.lat, lng: manualHome.lng, alt_m: 0 }] : []);
-  if (!displayGps.length) return <div style={emptyStyle}>No GPS data</div>;
+  // Build altitude-colored polyline segments (max ~100 segments for perf)
+  const maxAlt = Math.max(...gps.map(p => p.alt_m || 0)) || 1;
+  const step = Math.max(1, Math.floor(gps.length / 100));
+  const segments = [];
+  for (let i = 0; i < gps.length - step; i += step) {
+    const p = gps[i];
+    const q = gps[Math.min(i + step, gps.length - 1)];
+    const hue = Math.round(120 - ((p.alt_m || 0) / maxAlt) * 120);
+    segments.push({ pts: [[p.lat, p.lng], [q.lat, q.lng]], color: `hsl(${hue},85%,55%)` });
+  }
 
-  const lats = displayGps.map(p => p.lat), lngs = displayGps.map(p => p.lng);
-  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-  const pad = homeOnly ? 0.005 : 0.0005;
-  const W = 600, H = 300;
-
-  const toX = (lng) => ((lng - minLng + pad) / (maxLng - minLng + 2*pad)) * W;
-  const toY = (lat) => H - ((lat - minLat + pad) / (maxLat - minLat + 2*pad)) * H;
-
-  const maxAlt = Math.max(...displayGps.map(p => p.alt_m || 0)) || 1;
+  const tile = TILE_LAYERS[tileStyle];
 
   return (
-    <div style={{ background: 'var(--bg-card)', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
-      {homeOnly && (
-        <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 10, background: 'rgba(0,0,0,0.7)', border: '1px solid #F59E0B50', borderRadius: 6, padding: '4px 10px', fontSize: 11, color: '#F59E0B' }}>
-          Home position only — no GPS track
-        </div>
-      )}
-      {!homeOnly && (
-        <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 10, display: 'flex', gap: 6 }}>
-          {['Satellite','Terrain','Streets'].map(s => (
-            <button key={s} style={{ ...btnSmallStyle, background: s === 'Satellite' ? '#3B82F6' : 'var(--border-tooltip)' }}>{s}</button>
-          ))}
-        </div>
-      )}
-      {/* Edit home button */}
-      <button onClick={() => { localStorage.removeItem(`uavlogbook-home-${flightData?.id}`); setManualHome(null); }}
-        style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, ...btnSmallStyle, display: homeOnly ? 'flex' : 'none' }}>
-        <Edit3 size={11} /> Change
-      </button>
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
-        <rect width={W} height={H} fill="#0D1B2A" />
-        {Array.from({length: 8}, (_,i) => (
-          <g key={i}>
-            <line x1={i*W/7} y1={0} x2={i*W/7} y2={H} stroke="var(--grid-line)" />
-            <line x1={0} y1={i*H/7} x2={W} y2={i*H/7} stroke="var(--grid-line)" />
-          </g>
+    <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden' }}>
+      {/* Style switcher */}
+      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1000, display: 'flex', gap: 5 }}>
+        {Object.keys(TILE_LAYERS).map(s => (
+          <button key={s} onClick={() => setTileStyle(s)}
+            style={{ ...btnSmallStyle, background: tileStyle === s ? 'var(--accent)' : 'rgba(10,10,20,0.85)', color: tileStyle === s ? '#fff' : 'var(--text-secondary)', borderColor: tileStyle === s ? 'var(--accent)' : 'rgba(255,255,255,0.15)', backdropFilter: 'blur(4px)' }}>
+            {s}
+          </button>
         ))}
-        {/* Altitude-colored path segments (only when we have a real track) */}
-        {!homeOnly && displayGps.slice(0, -1).map((p, i) => {
-          const hue = 120 - (p.alt_m / maxAlt) * 120;
-          return (
-            <line key={i}
-              x1={toX(p.lng)} y1={toY(p.lat)}
-              x2={toX(displayGps[i+1].lng)} y2={toY(displayGps[i+1].lat)}
-              stroke={`hsl(${hue},80%,55%)`} strokeWidth={2.5} strokeLinecap="round"
-            />
-          );
-        })}
+      </div>
+
+      {/* Change home button (homeOnly mode) */}
+      {homeOnly && (
+        <button onClick={() => { localStorage.removeItem(`uavlogbook-home-${flightData?.id}`); setManualHome(null); }}
+          style={{ position: 'absolute', top: 10, right: 10, zIndex: 1000, ...btnSmallStyle, background: 'rgba(10,10,20,0.85)', backdropFilter: 'blur(4px)' }}>
+          <Edit3 size={11} /> Change Home
+        </button>
+      )}
+
+      <MapContainer
+        style={{ height: 340, width: '100%' }}
+        center={positions[0]}
+        zoom={14}
+        zoomControl={true}
+        scrollWheelZoom={true}
+        attributionControl={true}
+      >
+        <TileLayer key={tileStyle} url={tile.url} attribution={tile.attribution} maxZoom={tile.maxZoom} />
+        <FitBounds positions={positions} homeOnly={homeOnly} />
+
+        {/* Flight path — altitude-colored segments */}
+        {!homeOnly && segments.map((seg, i) => (
+          <Polyline key={i} positions={seg.pts} color={seg.color} weight={3} opacity={0.9} />
+        ))}
+
         {/* Home marker */}
-        <circle cx={toX(displayGps[0].lng)} cy={toY(displayGps[0].lat)} r={homeOnly ? 12 : 7} fill="#10B981" opacity={0.9} />
-        <text x={toX(displayGps[0].lng)+14} y={toY(displayGps[0].lat)+4} fill="#10B981" fontSize={11}>HOME{homeOnly && ` (${displayGps[0].lat.toFixed(4)}, ${displayGps[0].lng.toFixed(4)})`}</text>
-        {/* Last position */}
+        <CircleMarker center={positions[0]} radius={8} pathOptions={{ color: '#10B981', fillColor: '#10B981', fillOpacity: 0.9, weight: 2 }}>
+          <LeafletTooltip permanent direction="right" offset={[10, 0]} className="map-label">HOME</LeafletTooltip>
+        </CircleMarker>
+
+        {/* Landing marker */}
         {!homeOnly && (
-          <>
-            <circle cx={toX(displayGps[displayGps.length-1].lng)} cy={toY(displayGps[displayGps.length-1].lat)} r={7} fill="#EF4444" opacity={0.9} />
-            <text x={toX(displayGps[displayGps.length-1].lng)+10} y={toY(displayGps[displayGps.length-1].lat)+4} fill="#EF4444" fontSize={11}>LAND</text>
-          </>
+          <CircleMarker center={positions[positions.length - 1]} radius={8} pathOptions={{ color: '#EF4444', fillColor: '#EF4444', fillOpacity: 0.9, weight: 2 }}>
+            <LeafletTooltip permanent direction="right" offset={[10, 0]} className="map-label">LAND</LeafletTooltip>
+          </CircleMarker>
         )}
-      </svg>
+      </MapContainer>
+
+      {/* Altitude legend */}
       {!homeOnly && (
-        <div style={{ position: 'absolute', bottom: 8, right: 8, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.6)', padding: '4px 10px', borderRadius: 6 }}>
+        <div style={{ position: 'absolute', bottom: 24, right: 10, zIndex: 1000, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(10,10,20,0.85)', padding: '4px 10px', borderRadius: 6, backdropFilter: 'blur(4px)' }}>
           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>0m</span>
-          <div style={{ width: 60, height: 8, borderRadius: 4, background: 'linear-gradient(to right, hsl(120,80%,55%), hsl(0,80%,55%))' }} />
+          <div style={{ width: 60, height: 7, borderRadius: 3, background: 'linear-gradient(to right, hsl(120,85%,55%), hsl(0,85%,55%))' }} />
           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{maxAlt.toFixed(0)}m</span>
         </div>
       )}

@@ -16,8 +16,20 @@ html, body, #root {
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
-/* Leaflet map fix */
+/* Leaflet map */
 .leaflet-container { height: 100%; width: 100%; z-index: 1; }
+.map-label {
+  background: rgba(10,10,20,0.85) !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+  color: #E2E8F0 !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  padding: 2px 7px !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  white-space: nowrap !important;
+}
+.map-label::before { display: none !important; }
 
 button:focus-visible { outline: 2px solid #3B82F6; outline-offset: 2px; }
 input:focus { outline: 1px solid #3B82F6; }
