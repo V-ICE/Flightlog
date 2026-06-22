@@ -336,11 +336,17 @@ function uploadFlight(array $user): array {
 }
 
 function updateFlight(array $user, int $id, array $body): array {
-    $allowed = ['pilot_notes', 'location_name', 'aircraft_id', 'tags'];
+    $allowed = ['pilot_notes', 'location_name', 'aircraft_id', 'tags', 'display_name', 'home_lat', 'home_lng', 'flight_date'];
     $updates = [];
     foreach ($allowed as $field) {
         if (array_key_exists($field, $body)) {
-            $updates[$field] = $field === 'tags' ? json_encode((array)$body[$field]) : $body[$field];
+            if ($field === 'tags') {
+                $updates[$field] = json_encode((array)$body[$field]);
+            } elseif (in_array($field, ['home_lat', 'home_lng'])) {
+                $updates[$field] = $body[$field] === null ? null : (float)$body[$field];
+            } else {
+                $updates[$field] = $body[$field];
+            }
         }
     }
     if (empty($updates)) return ['success' => false, 'error' => 'Nothing to update'];

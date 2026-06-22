@@ -94,7 +94,7 @@ rebuild-web:
 # ── Quick rebuild (keeps existing dist volume) ─────────────
 rebuild-web-quick:
 	@echo "Rebuilding React (quick — keeping dist volume)..."
-	docker compose run --rm builder sh -c 'cd /build && rm -rf dist && node node_modules/vite/bin/vite.js build'
+	docker compose run --rm builder sh -c 'cd /build && npm install --include=dev && node node_modules/vite/bin/vite.js build'
 	docker compose up -d --force-recreate app
 	@echo "Done."
 

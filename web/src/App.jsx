@@ -20,6 +20,7 @@ import {
 import { VideoSyncModule } from "./VideoSync.jsx";
 import { useUIStore } from './store.js';
 import { themes, applyTheme } from './themes.js';
+import { formatCoord, parseCoord, COORD_FORMATS } from './coords.js';
 
 // ── Minimal in-memory state (no localStorage) ────────────────
 const defaultModules = [
@@ -91,34 +92,196 @@ const ChartTooltip = ({ active, payload, label, unit = '' }) => {
   );
 };
 
-// ── Module: Flight Map (Leaflet-style SVG demo) ───────────────
-const MapModule = ({ data }) => {
-  const gps = data?.gps || [];
-  if (!gps.length) return <div style={emptyStyle}>No GPS data available</div>;
+// ── Coordinate input with format switcher ─────────────────────
+const CoordInput = ({ lat, lng, onChange }) => {
+  const [fmt, setFmt] = useState('dd');
+  const [raw, setRaw] = useState('');
+  const [error, setError] = useState('');
+  const def = COORD_FORMATS.find(f => f.key === fmt);
 
-  const lats = gps.map(p => p.lat), lngs = gps.map(p => p.lng);
+  // When lat/lng props change externally (e.g. geolocation), sync raw display
+  useEffect(() => {
+    if (lat != null && lng != null && !isNaN(parseFloat(lat)) && !isNaN(parseFloat(lng))) {
+      const f = formatCoord(parseFloat(lat), parseFloat(lng), fmt);
+      setRaw(def?.twoFields ? '' : f.combined);
+    }
+  }, [lat, lng, fmt]);
+
+  const inp = { background: 'var(--bg-input)', border: '1px solid var(--border-input)', borderRadius: 8, padding: '9px 12px', fontSize: 13, color: 'var(--text-primary)', width: '100%', outline: 'none', boxSizing: 'border-box' };
+
+  const handleChange = (val) => {
+    setRaw(val);
+    setError('');
+    if (!def?.twoFields) {
+      const result = parseCoord(val, fmt);
+      if (result && result.lat != null) onChange(result.lat.toFixed(6), result.lng.toFixed(6));
+    }
+  };
+
+  const handleDD = (field, val) => {
+    setError('');
+    if (field === 'lat') onChange(val, lng);
+    else onChange(lat, val);
+  };
+
+  return (
+    <div>
+      {/* Format tabs */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+        {COORD_FORMATS.map(f => (
+          <button key={f.key} onClick={() => { setFmt(f.key); setRaw(''); setError(''); }}
+            style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: '1px solid', borderColor: fmt === f.key ? 'var(--accent)' : 'var(--border)', background: fmt === f.key ? 'var(--accent-bg)' : 'var(--bg-card)', color: fmt === f.key ? 'var(--accent)' : 'var(--text-muted)' }}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {def?.twoFields ? (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Latitude</div>
+            <input style={inp} type="number" step="0.000001" placeholder="e.g. 51.505" value={lat ?? ''} onChange={e => handleDD('lat', e.target.value)} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Longitude</div>
+            <input style={inp} type="number" step="0.000001" placeholder="e.g. -0.09" value={lng ?? ''} onChange={e => handleDD('lng', e.target.value)} />
+          </div>
+        </div>
+      ) : (
+        <div>
+          <input style={{ ...inp, fontFamily: def?.key === 'mgrs' || def?.key === 'utm' ? 'monospace' : 'inherit' }}
+            value={def?.displayOnly ? (lat && lng ? formatCoord(parseFloat(lat), parseFloat(lng), fmt).combined : '') : raw}
+            readOnly={!!def?.displayOnly}
+            onChange={e => handleChange(e.target.value)}
+            placeholder={def?.hint} />
+        </div>
+      )}
+
+      {/* Show current position in all formats when lat/lng are known */}
+      {lat && lng && !isNaN(parseFloat(lat)) && (
+        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {COORD_FORMATS.filter(f => f.key !== fmt).map(f => {
+            const formatted = formatCoord(parseFloat(lat), parseFloat(lng), f.key);
+            return (
+              <div key={f.key} style={{ fontSize: 10, color: 'var(--text-faint)', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 5, padding: '2px 8px', fontFamily: 'monospace' }}>
+                <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{f.label}:</span>
+                {formatted.combined}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {error && <div style={{ fontSize: 11, color: '#EF4444', marginTop: 4 }}>{error}</div>}
+    </div>
+  );
+};
+
+// ── Manual home position picker (shown when no GPS track exists) ──
+const HomePositionPicker = ({ flightId, onConfirm }) => {
+  const stored = (() => { try { return JSON.parse(localStorage.getItem(`uavlogbook-home-${flightId}`) || 'null'); } catch { return null; } })();
+  const [lat, setLat] = useState(stored?.lat ?? '');
+  const [lng, setLng] = useState(stored?.lng ?? '');
+  const [locating, setLocating] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => { if (stored) onConfirm(stored); }, []); // auto-restore saved position
+
+  const useMyLocation = () => {
+    if (!navigator.geolocation) { setError('Geolocation not available in this browser'); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setLat(pos.coords.latitude.toFixed(6)); setLng(pos.coords.longitude.toFixed(6)); setLocating(false); },
+      ()    => { setError('Could not get location — check browser permissions'); setLocating(false); }
+    );
+  };
+
+  const confirm = () => {
+    const la = parseFloat(lat), ln = parseFloat(lng);
+    if (isNaN(la) || isNaN(ln) || la < -90 || la > 90 || ln < -180 || ln > 180) {
+      setError('Enter a valid position in any format'); return;
+    }
+    const pos = { lat: la, lng: ln };
+    localStorage.setItem(`uavlogbook-home-${flightId}`, JSON.stringify(pos));
+    onConfirm(pos);
+  };
+
+  return (
+    <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+      <div style={{ textAlign: 'center' }}>
+        <Globe size={32} color="var(--text-faint)" style={{ marginBottom: 10 }} />
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>No GPS track in this log</div>
+        <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>Set a home position to show the map</div>
+      </div>
+      <div style={{ width: '100%', maxWidth: 420 }}>
+        <CoordInput lat={lat} lng={lng} onChange={(la, ln) => { setLat(la); setLng(ln); }} />
+      </div>
+      {error && <div style={{ fontSize: 12, color: '#EF4444' }}>{error}</div>}
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button onClick={useMyLocation} disabled={locating}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', padding: '9px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 12 }}>
+          <Globe size={13} />{locating ? 'Locating…' : 'Use My Location'}
+        </button>
+        <button onClick={confirm}
+          style={{ background: 'var(--accent)', border: 'none', color: '#fff', padding: '9px 20px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+          Set Home Position
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ── Module: Flight Map (Leaflet-style SVG demo) ───────────────
+const MapModule = ({ data, flightData }) => {
+  const [manualHome, setManualHome] = useState(null);
+  const rawGps = data?.gps || [];
+  // Filter out points with no valid coordinates
+  const gps = rawGps.filter(p => p.lat != null && p.lng != null && !isNaN(p.lat) && !isNaN(p.lng));
+
+  if (!gps.length) return (
+    <HomePositionPicker
+      flightId={flightData?.id}
+      onConfirm={(pos) => setManualHome(pos)}
+    />
+  );
+
+  // If we only have a home pin (manual), skip the track rendering below
+  const homeOnly = gps.length < 2;
+
+  // Use manualHome as single point if no real GPS track
+  const displayGps = gps.length ? gps : (manualHome ? [{ lat: manualHome.lat, lng: manualHome.lng, alt_m: 0 }] : []);
+  if (!displayGps.length) return <div style={emptyStyle}>No GPS data</div>;
+
+  const lats = displayGps.map(p => p.lat), lngs = displayGps.map(p => p.lng);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
   const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-  const pad = 0.0005;
+  const pad = homeOnly ? 0.005 : 0.0005;
   const W = 600, H = 300;
 
   const toX = (lng) => ((lng - minLng + pad) / (maxLng - minLng + 2*pad)) * W;
   const toY = (lat) => H - ((lat - minLat + pad) / (maxLat - minLat + 2*pad)) * H;
 
-  const pathD = gps.map((p, i) => `${i===0?'M':'L'}${toX(p.lng).toFixed(1)},${toY(p.lat).toFixed(1)}`).join(' ');
-
-  // Color by altitude
-  const maxAlt = Math.max(...gps.map(p => p.alt_m || 0));
+  const maxAlt = Math.max(...displayGps.map(p => p.alt_m || 0)) || 1;
 
   return (
     <div style={{ background: 'var(--bg-card)', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
-      <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 10, display: 'flex', gap: 6 }}>
-        {['Satellite','Terrain','Streets'].map(s => (
-          <button key={s} style={{ ...btnSmallStyle, background: s === 'Satellite' ? '#3B82F6' : 'var(--border-tooltip)' }}>{s}</button>
-        ))}
-      </div>
+      {homeOnly && (
+        <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 10, background: 'rgba(0,0,0,0.7)', border: '1px solid #F59E0B50', borderRadius: 6, padding: '4px 10px', fontSize: 11, color: '#F59E0B' }}>
+          Home position only — no GPS track
+        </div>
+      )}
+      {!homeOnly && (
+        <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 10, display: 'flex', gap: 6 }}>
+          {['Satellite','Terrain','Streets'].map(s => (
+            <button key={s} style={{ ...btnSmallStyle, background: s === 'Satellite' ? '#3B82F6' : 'var(--border-tooltip)' }}>{s}</button>
+          ))}
+        </div>
+      )}
+      {/* Edit home button */}
+      <button onClick={() => { localStorage.removeItem(`uavlogbook-home-${flightData?.id}`); setManualHome(null); }}
+        style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, ...btnSmallStyle, display: homeOnly ? 'flex' : 'none' }}>
+        <Edit3 size={11} /> Change
+      </button>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
-        {/* Background grid */}
         <rect width={W} height={H} fill="#0D1B2A" />
         {Array.from({length: 8}, (_,i) => (
           <g key={i}>
@@ -126,55 +289,133 @@ const MapModule = ({ data }) => {
             <line x1={0} y1={i*H/7} x2={W} y2={i*H/7} stroke="var(--grid-line)" />
           </g>
         ))}
-        {/* Altitude-colored path segments */}
-        {gps.slice(0, -1).map((p, i) => {
+        {/* Altitude-colored path segments (only when we have a real track) */}
+        {!homeOnly && displayGps.slice(0, -1).map((p, i) => {
           const hue = 120 - (p.alt_m / maxAlt) * 120;
           return (
             <line key={i}
               x1={toX(p.lng)} y1={toY(p.lat)}
-              x2={toX(gps[i+1].lng)} y2={toY(gps[i+1].lat)}
+              x2={toX(displayGps[i+1].lng)} y2={toY(displayGps[i+1].lat)}
               stroke={`hsl(${hue},80%,55%)`} strokeWidth={2.5} strokeLinecap="round"
             />
           );
         })}
         {/* Home marker */}
-        <circle cx={toX(gps[0].lng)} cy={toY(gps[0].lat)} r={7} fill="#10B981" opacity={0.9} />
-        <text x={toX(gps[0].lng)+10} y={toY(gps[0].lat)+4} fill="#10B981" fontSize={11}>HOME</text>
+        <circle cx={toX(displayGps[0].lng)} cy={toY(displayGps[0].lat)} r={homeOnly ? 12 : 7} fill="#10B981" opacity={0.9} />
+        <text x={toX(displayGps[0].lng)+14} y={toY(displayGps[0].lat)+4} fill="#10B981" fontSize={11}>HOME{homeOnly && ` (${displayGps[0].lat.toFixed(4)}, ${displayGps[0].lng.toFixed(4)})`}</text>
         {/* Last position */}
-        <circle cx={toX(gps[gps.length-1].lng)} cy={toY(gps[gps.length-1].lat)} r={7} fill="#EF4444" opacity={0.9} />
-        <text x={toX(gps[gps.length-1].lng)+10} y={toY(gps[gps.length-1].lat)+4} fill="#EF4444" fontSize={11}>LAND</text>
+        {!homeOnly && (
+          <>
+            <circle cx={toX(displayGps[displayGps.length-1].lng)} cy={toY(displayGps[displayGps.length-1].lat)} r={7} fill="#EF4444" opacity={0.9} />
+            <text x={toX(displayGps[displayGps.length-1].lng)+10} y={toY(displayGps[displayGps.length-1].lat)+4} fill="#EF4444" fontSize={11}>LAND</text>
+          </>
+        )}
       </svg>
-      {/* Altitude legend */}
-      <div style={{ position: 'absolute', bottom: 8, right: 8, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.6)', padding: '4px 10px', borderRadius: 6 }}>
-        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>0m</span>
-        <div style={{ width: 60, height: 8, borderRadius: 4, background: 'linear-gradient(to right, hsl(120,80%,55%), hsl(0,80%,55%))' }} />
-        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{maxAlt.toFixed(0)}m</span>
-      </div>
+      {!homeOnly && (
+        <div style={{ position: 'absolute', bottom: 8, right: 8, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.6)', padding: '4px 10px', borderRadius: 6 }}>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>0m</span>
+          <div style={{ width: 60, height: 8, borderRadius: 4, background: 'linear-gradient(to right, hsl(120,80%,55%), hsl(0,80%,55%))' }} />
+          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{maxAlt.toFixed(0)}m</span>
+        </div>
+      )}
     </div>
   );
 };
 
 // ── Module: Altitude ─────────────────────────────────────────
-const AltitudeModule = ({ data }) => (
-  <ResponsiveContainer width="100%" height={200}>
-    <AreaChart data={data?.alt || []} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-      <defs>
-        <linearGradient id="altGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
-          <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
-        </linearGradient>
-      </defs>
-      <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" />
-      <XAxis dataKey="t" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}s`} />
-      <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}m`} />
-      <Tooltip content={<ChartTooltip unit="m" />} />
-      <Legend wrapperStyle={{ color: 'var(--text-tertiary)', fontSize: 12 }} />
-      <Area type="monotone" dataKey="alt" name="Baro Alt" stroke="#10B981" fill="url(#altGrad)" strokeWidth={2} dot={false} />
-      <Area type="monotone" dataKey="alt_gps" name="GPS Alt" stroke="#06B6D4" fill="none" strokeWidth={1.5} strokeDasharray="4 2" dot={false} />
-      <Brush dataKey="t" height={20} stroke="var(--brush-stroke)" fill="var(--bg-card)" travellerWidth={6} />
-    </AreaChart>
-  </ResponsiveContainer>
-);
+const AltitudeModule = ({ data, flightData }) => {
+  const altData = data?.alt || [];
+  const gpsData = data?.gps || [];
+  if (!altData.length) return <div style={emptyStyle}>No altitude data available</div>;
+
+  const altVals = altData.map(p => p.alt).filter(v => v != null);
+  const maxAlt  = Math.max(...altVals);
+  const minAlt  = Math.min(...altVals);
+
+  // Compute vertical speed from consecutive GPS points
+  const enriched = altData.map((p, i) => {
+    if (i === 0) return { ...p, vspeed: 0 };
+    const prev = altData[i - 1];
+    const dt = p.t - prev.t;
+    const da = (p.alt ?? 0) - (prev.alt ?? 0);
+    return { ...p, vspeed: dt > 0 ? parseFloat((da / dt).toFixed(2)) : 0 };
+  });
+
+  // Takeoff / landing time markers (seconds into flight)
+  const takeoffSec = flightData?.takeoff_ms != null ? Math.round(parseFloat(flightData.takeoff_ms) / 1000) : null;
+  const landingSec = flightData?.landing_ms  != null ? Math.round(parseFloat(flightData.landing_ms)  / 1000) : null;
+
+  const fmtTime = (sec) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
+  const AltTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    const alt   = payload.find(p => p.dataKey === 'alt');
+    const vs    = payload.find(p => p.dataKey === 'vspeed');
+    const altG  = payload.find(p => p.dataKey === 'alt_gps');
+    return (
+      <div style={{ background: 'var(--chart-bg)', border: '1px solid var(--border-tooltip)', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+        <div style={{ color: 'var(--text-tertiary)', marginBottom: 4 }}>t = {fmtTime(label)}</div>
+        {alt  && <div style={{ color: '#10B981' }}>Altitude: <strong>{alt.value?.toFixed(1)}m</strong></div>}
+        {altG && altG.value != null && <div style={{ color: '#06B6D4' }}>GPS Alt: <strong>{altG.value?.toFixed(1)}m</strong></div>}
+        {vs   && <div style={{ color: vs.value >= 0 ? '#34D399' : '#F87171' }}>V-Speed: <strong>{vs.value > 0 ? '+' : ''}{vs.value?.toFixed(1)} m/s</strong></div>}
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      {/* Summary bar */}
+      <div style={{ display: 'flex', gap: 20, marginBottom: 12, fontSize: 12 }}>
+        {[
+          { label: 'Max Alt',  value: `${maxAlt.toFixed(1)}m`,         color: '#10B981' },
+          { label: 'Min Alt',  value: `${minAlt.toFixed(1)}m`,         color: '#64748B' },
+          { label: 'AGL Range', value: `${(maxAlt - minAlt).toFixed(1)}m`, color: '#F59E0B' },
+          takeoffSec != null && { label: 'Takeoff', value: fmtTime(takeoffSec), color: '#06B6D4' },
+          landingSec != null && { label: 'Landing', value: fmtTime(landingSec), color: '#EF4444' },
+        ].filter(Boolean).map((s, i) => (
+          <div key={i}>
+            <span style={{ color: 'var(--text-faint)', marginRight: 4 }}>{s.label}</span>
+            <span style={{ color: s.color, fontWeight: 700 }}>{s.value}</span>
+          </div>
+        ))}
+      </div>
+
+      <ResponsiveContainer width="100%" height={260}>
+        <AreaChart data={enriched} margin={{ top: 10, right: 10, bottom: 5, left: 0 }}>
+          <defs>
+            <linearGradient id="altGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%"  stopColor="#10B981" stopOpacity={0.35} />
+              <stop offset="95%" stopColor="#10B981" stopOpacity={0.02} />
+            </linearGradient>
+            <linearGradient id="altGpsGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%"  stopColor="#06B6D4" stopOpacity={0.15} />
+              <stop offset="95%" stopColor="#06B6D4" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" />
+          <XAxis dataKey="t" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={fmtTime} label={{ value: 'Time (m:ss)', position: 'insideBottomRight', offset: -8, fill: 'var(--text-faint)', fontSize: 10 }} />
+          <YAxis yAxisId="alt" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}m`} domain={[dataMin => Math.min(0, dataMin - 2), dataMax => Math.ceil(dataMax * 1.05)]} />
+          <YAxis yAxisId="vs" orientation="right" tick={{ fill: 'var(--text-faint)', fontSize: 10 }} tickFormatter={v => `${v}m/s`} domain={[-10, 10]} width={48} />
+          <Tooltip content={<AltTooltip />} />
+          <ReferenceLine yAxisId="alt" y={0} stroke="var(--border-tooltip)" strokeDasharray="4 2" label={{ value: 'Home', fill: 'var(--text-faint)', fontSize: 10, position: 'insideTopLeft' }} />
+          {takeoffSec != null && <ReferenceLine yAxisId="alt" x={takeoffSec} stroke="#06B6D4" strokeDasharray="4 2" label={{ value: '↑ Takeoff', fill: '#06B6D4', fontSize: 10, position: 'insideTopRight' }} />}
+          {landingSec != null && <ReferenceLine yAxisId="alt" x={landingSec} stroke="#EF4444" strokeDasharray="4 2" label={{ value: '↓ Land', fill: '#EF4444', fontSize: 10, position: 'insideTopRight' }} />}
+          <Area yAxisId="alt" type="monotone" dataKey="alt"     name="Altitude" stroke="#10B981" fill="url(#altGrad)"    strokeWidth={2.5} dot={false} activeDot={{ r: 4, fill: '#10B981' }} />
+          {enriched.some(p => p.alt_gps != null) && (
+            <Area yAxisId="alt" type="monotone" dataKey="alt_gps" name="GPS Alt"  stroke="#06B6D4" fill="url(#altGpsGrad)" strokeWidth={1.5} strokeDasharray="5 3" dot={false} />
+          )}
+          <Area yAxisId="vs" type="monotone" dataKey="vspeed" name="V-Speed" stroke="#A78BFA" fill="none" strokeWidth={1} dot={false} strokeDasharray="2 2" />
+          <Legend wrapperStyle={{ color: 'var(--text-tertiary)', fontSize: 12 }} />
+          <Brush dataKey="t" height={20} stroke="var(--brush-stroke)" fill="var(--bg-card)" travellerWidth={6} tickFormatter={fmtTime} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+};
 
 // ── Module: Attitude ──────────────────────────────────────────
 const AttitudeModule = ({ data }) => (
@@ -559,8 +800,8 @@ const StatsModule = ({ flightData }) => {
 
 // ── Module Registry ───────────────────────────────────────────
 const ModuleComponents = {
-  map:         ({ data }) => <MapModule data={data} />,
-  altitude:    ({ data }) => <AltitudeModule data={data} />,
+  map:         ({ data, flightData }) => <MapModule data={data} flightData={flightData} />,
+  altitude:    ({ data, flightData }) => <AltitudeModule data={data} flightData={flightData} />,
   attitude:    ({ data }) => <AttitudeModule data={data} />,
   speed:       ({ data }) => <SpeedModule data={data} />,
   battery:     ({ data }) => <BatteryModule data={data} />,
@@ -829,6 +1070,109 @@ const AuthScreen = () => {
   );
 };
 
+// ── Flight Edit Panel ─────────────────────────────────────────
+const FlightEditPanel = ({ flight, token, onClose, onSaved }) => {
+  const [form, setForm] = useState({
+    display_name:  flight.display_name  || '',
+    location_name: flight.location_name || '',
+    flight_date:   flight.flight_date   ? flight.flight_date.slice(0, 16) : '',
+    home_lat:      flight.home_lat      != null ? String(parseFloat(flight.home_lat)) : '',
+    home_lng:      flight.home_lng      != null ? String(parseFloat(flight.home_lng)) : '',
+    pilot_notes:   flight.pilot_notes   || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+  const [locating, setLocating] = useState(false);
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const useMyLocation = () => {
+    if (!navigator.geolocation) { setError('Geolocation not available'); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { set('home_lat', pos.coords.latitude.toFixed(6)); set('home_lng', pos.coords.longitude.toFixed(6)); setLocating(false); },
+      ()    => { setError('Could not get location'); setLocating(false); }
+    );
+  };
+
+  const save = async () => {
+    setSaving(true); setError('');
+    const body = { ...form };
+    if (body.home_lat) body.home_lat = parseFloat(body.home_lat);
+    if (body.home_lng) body.home_lng = parseFloat(body.home_lng);
+    if (!body.home_lat) body.home_lat = null;
+    if (!body.home_lng) body.home_lng = null;
+    try {
+      const r = await fetch(`/api/v1/flights/${flight.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (j.error) { setError(j.error); return; }
+      onSaved({ ...flight, ...form, home_lat: body.home_lat, home_lng: body.home_lng });
+    } catch { setError('Save failed'); } finally { setSaving(false); }
+  };
+
+  const inp = { background: 'var(--bg-input)', border: '1px solid var(--border-input)', borderRadius: 8, padding: '9px 12px', fontSize: 13, color: 'var(--text-primary)', width: '100%', outline: 'none', boxSizing: 'border-box' };
+  const label = (text) => <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{text}</div>;
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }}>
+      {/* Backdrop */}
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} />
+      {/* Panel */}
+      <div style={{ position: 'relative', width: 380, background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-panel)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Header */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Edit3 size={16} color="var(--accent)" />
+          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', flex: 1 }}>Edit Flight</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', padding: 4 }}><X size={18} /></button>
+        </div>
+        {/* Fields */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            {label('Display Name')}
+            <input style={inp} value={form.display_name} onChange={e => set('display_name', e.target.value)} placeholder={flight.original_filename} />
+          </div>
+          <div>
+            {label('Flight Date')}
+            <input style={inp} type="datetime-local" value={form.flight_date} onChange={e => set('flight_date', e.target.value)} />
+          </div>
+          <div>
+            {label('Location Name')}
+            <input style={inp} value={form.location_name} onChange={e => set('location_name', e.target.value)} placeholder="e.g. My Airfield, Back garden…" />
+          </div>
+          <div>
+            {label('Home Position (GPS)')}
+            <CoordInput
+              lat={form.home_lat}
+              lng={form.home_lng}
+              onChange={(la, ln) => { set('home_lat', la); set('home_lng', ln); }}
+            />
+            <button onClick={useMyLocation} disabled={locating}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12, marginTop: 8 }}>
+              <Globe size={13} />{locating ? 'Locating…' : 'Use My Location'}
+            </button>
+          </div>
+          <div>
+            {label('Pilot Notes')}
+            <textarea style={{ ...inp, resize: 'vertical', minHeight: 80 }} value={form.pilot_notes} onChange={e => set('pilot_notes', e.target.value)} placeholder="Any notes about this flight…" />
+          </div>
+          {error && <div style={{ fontSize: 12, color: '#EF4444', background: '#EF444415', padding: '8px 12px', borderRadius: 8 }}>{error}</div>}
+        </div>
+        {/* Footer */}
+        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 10 }}>
+          <button onClick={onClose} style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', padding: '10px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ flex: 2, background: 'var(--accent)', border: 'none', color: '#fff', padding: '10px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Main App ──────────────────────────────────────────────────
 export default function App() {
   const { isAuthenticated, user, logout, token } = useAuthStore();
@@ -843,6 +1187,7 @@ export default function App() {
   const [dashStats, setDashStats] = useState(null);
   const [playheadMs, setPlayheadMs] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [editingFlight, setEditingFlight] = useState(false);
 
   const enabledModules = modules.filter(m => m.enabled).sort((a, b) => modules.indexOf(a) - modules.indexOf(b));
 
@@ -903,6 +1248,7 @@ export default function App() {
   const layout = themes[theme]?.layout || 'default';
 
   return (
+    <>
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-app)', color: 'var(--text-primary)', fontFamily: layout === 'terminal' ? "'JetBrains Mono', 'Fira Code', monospace" : "'Inter', system-ui, sans-serif", overflow: 'hidden' }}>
 
       {/* Sidebar */}
@@ -959,8 +1305,14 @@ export default function App() {
               <button onClick={() => setView('dashboard')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
                 <ArrowLeft size={14} />
               </button>
-              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFlight.original_filename}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {selectedFlight.display_name || selectedFlight.original_filename}
+              </span>
               <span style={{ fontSize: 11, color: '#F59E0B', background: '#F59E0B15', padding: '2px 8px', borderRadius: 10, fontWeight: 600, flexShrink: 0 }}>{selectedFlight.log_format?.replace(/_/g,' ').toUpperCase()}</span>
+              <button onClick={() => setEditingFlight(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>
+                <Edit3 size={13} /> Edit
+              </button>
             </>
           )}
           {view === 'dashboard' && (
@@ -1158,6 +1510,20 @@ export default function App() {
         </div>
       </div>
     </div>
+
+    {/* Flight edit panel (slide-in overlay) */}
+    {editingFlight && selectedFlight && (
+      <FlightEditPanel
+        flight={selectedFlight}
+        token={token}
+        onClose={() => setEditingFlight(false)}
+        onSaved={(updated) => {
+          setSelectedFlight(updated);
+          setEditingFlight(false);
+        }}
+      />
+    )}
+    </>
   );
 }
 
