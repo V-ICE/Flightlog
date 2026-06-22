@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS `flights` (
   `user_id`          INT UNSIGNED NOT NULL,
   `aircraft_id`      INT UNSIGNED DEFAULT NULL,
   `original_filename` VARCHAR(255) NOT NULL,
+  `display_name`     VARCHAR(255) DEFAULT NULL,
   `file_size`        INT UNSIGNED DEFAULT NULL,
   `file_hash`        VARCHAR(64) DEFAULT NULL,   -- SHA-256 for dedup
   `log_format`       VARCHAR(30) DEFAULT NULL,   -- ardupilot_bin, mavlink_tlog, px4_ulog, dji_txt, dji_csv, generic_csv, gpx, kml, betaflight, inav
