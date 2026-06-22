@@ -1291,6 +1291,42 @@ const AuthScreen = () => {
 };
 
 // ── Flight Edit Panel ─────────────────────────────────────────
+// ── Aircraft image cover + upload ────────────────────────────
+const AircraftImageUpload = ({ aircraft, token, onUpdated }) => {
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef();
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    const fd = new FormData();
+    fd.append('image', file);
+    try {
+      const r = await fetch(`/api/v1/aircraft/${aircraft.id}/image`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      });
+      const j = await r.json();
+      if (j.image_url) onUpdated(j.image_url);
+    } catch { } finally { setUploading(false); }
+  };
+
+  return (
+    <div style={{ position: 'relative', height: 180, background: 'var(--bg-input)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {aircraft.image_url
+        ? <img src={aircraft.image_url} alt={aircraft.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        : <span style={{ fontSize: 64, opacity: 0.2 }}>{AIRCRAFT_TYPES[aircraft.type]?.emoji || '✈'}</span>}
+
+      <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
+        onChange={e => handleFile(e.target.files[0])} />
+
+      <button onClick={() => fileRef.current?.click()} disabled={uploading}
+        style={{ position: 'absolute', bottom: 10, right: 10, display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(0,0,0,0.65)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12, backdropFilter: 'blur(4px)' }}>
+        <Camera size={13} />{uploading ? 'Uploading…' : aircraft.image_url ? 'Change Photo' : 'Add Photo'}
+      </button>
+    </div>
+  );
+};
+
 // ── Aircraft Management View ──────────────────────────────────
 const AircraftView = () => {
   const { token } = useAuthStore();
@@ -1330,9 +1366,12 @@ const AircraftView = () => {
           <ChevronLeft size={16} /> Back to Fleet
         </button>
 
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
+          {/* Cover photo */}
+          <AircraftImageUpload aircraft={selected} token={token} onUpdated={img => setSelected(s => ({ ...s, image_url: img }))} />
+
+          <div style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-            <div style={{ fontSize: 40 }}>{AIRCRAFT_TYPES[selected.type]?.emoji || '✈'}</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-bright)' }}>{selected.name}</div>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{selected.make} {selected.model}</div>
@@ -1365,6 +1404,7 @@ const AircraftView = () => {
           })()}
 
           {selected.notes && <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-muted)', background: 'var(--bg-input)', borderRadius: 8, padding: 12 }}>{selected.notes}</div>}
+          </div>
         </div>
 
         {/* Tabs: Maintenance */}
@@ -1417,11 +1457,17 @@ const AircraftView = () => {
           const specKeys = typeInfo.specs.filter(k => ac[k]);
           return (
             <div key={ac.id} onClick={() => setSelected(ac)}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, cursor: 'pointer', transition: 'border-color 0.15s', position: 'relative' }}
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', cursor: 'pointer', transition: 'border-color 0.15s', position: 'relative' }}
               onMouseOver={e => e.currentTarget.style.borderColor = 'var(--accent)'}
               onMouseOut={e => e.currentTarget.style.borderColor = 'var(--border)'}>
+              {/* Cover photo or emoji banner */}
+              <div style={{ height: 100, overflow: 'hidden', background: 'var(--bg-input)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                {ac.image_url
+                  ? <img src={ac.image_url} alt={ac.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <span style={{ fontSize: 48, opacity: 0.35 }}>{typeInfo.emoji}</span>}
+              </div>
+              <div style={{ padding: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                <div style={{ fontSize: 30 }}>{typeInfo.emoji}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-bright)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ac.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>{ac.make} {ac.model}</div>
@@ -1438,6 +1484,7 @@ const AircraftView = () => {
                   ))}
                 </div>
               )}
+              </div>
             </div>
           );
         })}

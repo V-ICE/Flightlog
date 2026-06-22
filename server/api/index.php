@@ -84,7 +84,11 @@ try {
             break;
         case 'POST:aircraft':
             $user = Auth::requireAuth();
-            echo json_encode(createAircraft($user, $body));
+            if ($sub === 'image') {
+                echo json_encode(uploadAircraftImage($user, $id));
+            } else {
+                echo json_encode(createAircraft($user, $body));
+            }
             break;
         case 'PUT:aircraft':
             $user = Auth::requireAuth();
@@ -469,6 +473,42 @@ function updateAircraft(array $user, int $id, array $body): array {
 function deleteAircraft(array $user, int $id): array {
     DB::query("DELETE FROM aircraft WHERE id=? AND user_id=?", [$id, $user['sub']]);
     return ['success' => true];
+}
+function uploadAircraftImage(array $user, int $id): array {
+    $ac = DB::query("SELECT id, image_url FROM aircraft WHERE id=? AND user_id=?", [$id, $user['sub']])->fetch();
+    if (!$ac) { http_response_code(404); return ['error' => 'Aircraft not found']; }
+
+    $file = $_FILES['image'] ?? null;
+    if (!$file || $file['error'] !== UPLOAD_ERR_OK) {
+        http_response_code(400); return ['error' => 'No image uploaded (field name: image)'];
+    }
+    if ($file['size'] > 10 * 1024 * 1024) {
+        http_response_code(413); return ['error' => 'Image exceeds 10MB limit'];
+    }
+
+    $mime = function_exists('mime_content_type') ? mime_content_type($file['tmp_name']) : 'image/jpeg';
+    $allowed = ['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp','image/gif'=>'gif','image/heic'=>'heic'];
+    $ext = $allowed[$mime] ?? null;
+    if (!$ext) { http_response_code(415); return ['error' => 'Unsupported image format']; }
+
+    $dir = AIRCRAFT_PHOTO_DIR;
+    if (!is_dir($dir)) mkdir($dir, 0755, true);
+
+    // Delete old image file if present
+    if ($ac['image_url']) {
+        $oldPath = str_replace(AIRCRAFT_PHOTO_PATH, AIRCRAFT_PHOTO_DIR, $ac['image_url']);
+        if (file_exists($oldPath)) unlink($oldPath);
+    }
+
+    $fname = 'ac_' . $id . '_' . uniqid() . '.' . $ext;
+    $storagePath = $dir . $fname;
+    if (!move_uploaded_file($file['tmp_name'], $storagePath)) {
+        return ['error' => 'Failed to save image'];
+    }
+
+    $webPath = AIRCRAFT_PHOTO_PATH . $fname;
+    DB::query("UPDATE aircraft SET image_url=? WHERE id=?", [$webPath, $id]);
+    return ['success' => true, 'image_url' => $webPath];
 }
 
 function listMaintenance(array $user, int $aircraftId): array {
