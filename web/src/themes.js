@@ -1,10 +1,12 @@
 // UAVLogBook — UI Themes
 // Each theme defines CSS custom properties injected on the root element.
 
+// layout values: 'default' | 'hud' | 'terminal' | 'magazine'
 export const themes = {
   dark: {
     label: 'Dark',
-    description: 'Deep navy — default',
+    description: 'Deep navy — default card layout',
+    layout: 'default',
     preview: ['#060D1A', '#0A1628', '#3B82F6'],
     vars: {
       '--bg-app':           '#060D1A',
@@ -37,7 +39,8 @@ export const themes = {
 
   midnight: {
     label: 'Midnight',
-    description: 'OLED black with cyan accents',
+    description: 'OLED black — cockpit HUD gauges',
+    layout: 'hud',
     preview: ['#000000', '#0A0A0A', '#00D4FF'],
     vars: {
       '--bg-app':           '#000000',
@@ -70,7 +73,8 @@ export const themes = {
 
   terminal: {
     label: 'Terminal',
-    description: 'Matrix green on black',
+    description: 'Matrix green — CLI text output',
+    layout: 'terminal',
     preview: ['#000800', '#001100', '#00FF41'],
     vars: {
       '--bg-app':           '#000800',
@@ -103,7 +107,8 @@ export const themes = {
 
   slate: {
     label: 'Slate',
-    description: 'Purple-tinted dark, easy on the eyes',
+    description: 'Purple-tinted — magazine big-card style',
+    layout: 'magazine',
     preview: ['#1E1E2E', '#252535', '#89B4FA'],
     vars: {
       '--bg-app':           '#1E1E2E',

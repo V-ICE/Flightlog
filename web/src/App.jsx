@@ -294,21 +294,256 @@ const EventsModule = ({ data }) => {
   );
 };
 
+// ── Layout helpers ────────────────────────────────────────────
+const useLayout = () => {
+  const { theme } = useUIStore();
+  return themes[theme]?.layout || 'default';
+};
+
+// SVG radial gauge for HUD layout
+const RadialGauge = ({ value, max, label, unit, color, size = 110 }) => {
+  const pct = Math.min(1, Math.max(0, (value || 0) / (max || 1)));
+  const r = 40, cx = size / 2, cy = size / 2;
+  const arc = (p) => {
+    const a = Math.PI * (0.75 + p * 1.5);
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  };
+  const [sx, sy] = arc(0), [ex, ey] = arc(pct);
+  const large = pct > 0.5 ? 1 : 0;
+  const trackD = `M ${arc(0)[0]} ${arc(0)[1]} A ${r} ${r} 0 1 1 ${arc(1)[0]} ${arc(1)[1]}`;
+  const fillD  = pct > 0.01 ? `M ${sx} ${sy} A ${r} ${r} 0 ${large} 1 ${ex} ${ey}` : '';
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <path d={trackD} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={7} strokeLinecap="round" />
+      {fillD && <path d={fillD} fill="none" stroke={color} strokeWidth={7} strokeLinecap="round" style={{ filter: `drop-shadow(0 0 4px ${color})` }} />}
+      <text x={cx} y={cy - 4} textAnchor="middle" fill={color} fontSize={13} fontWeight="700" fontFamily="monospace">{value ?? '—'}{unit}</text>
+      <text x={cx} y={cy + 12} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize={8} fontFamily="monospace">{label}</text>
+    </svg>
+  );
+};
+
+// ── Dashboard stat panels by layout ──────────────────────────
+const DashboardStats = ({ totals, byFormat }) => {
+  const layout = useLayout();
+  const flights  = totals.flights ?? 0;
+  const airH     = totals.total_time ? (parseFloat(totals.total_time) / 3600).toFixed(1) : 0;
+  const distKm   = totals.total_dist ? (parseFloat(totals.total_dist) / 1000).toFixed(0) : 0;
+  const formats  = byFormat.length || 0;
+
+  if (layout === 'hud') return (
+    <div style={{ display: 'flex', gap: 20, alignItems: 'center', justifyContent: 'center', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 30px', gridColumn: '1 / -1' }}>
+      <RadialGauge value={flights}  max={Math.max(flights, 20)} label="FLIGHTS"  unit=""   color="#00D4FF" size={120} />
+      <RadialGauge value={airH}     max={Math.max(airH, 10)}    label="AIR HRS"  unit="h"  color="#00FF88" size={120} />
+      <RadialGauge value={distKm}   max={Math.max(distKm, 100)} label="DIST KM"  unit="km" color="#FF6B35" size={120} />
+      <RadialGauge value={formats}  max={8}                     label="FORMATS"  unit=""   color="#A855F7" size={120} />
+    </div>
+  );
+
+  if (layout === 'terminal') return (
+    <div style={{ gridColumn: '1 / -1', fontFamily: 'monospace', background: 'var(--bg-card)', border: '1px solid var(--accent)', borderRadius: 4, padding: '16px 20px', fontSize: 13, lineHeight: 1.8 }}>
+      <div style={{ color: 'var(--accent)', marginBottom: 8 }}>$ uavlogbook --stats --summary</div>
+      <div style={{ color: 'var(--text-secondary)' }}>┌{'─'.repeat(38)}┐</div>
+      <div style={{ color: 'var(--text-secondary)' }}>│ {'TOTAL FLIGHTS'.padEnd(20)}<span style={{ color: 'var(--accent)' }}>{String(flights).padStart(6)}</span>        │</div>
+      <div style={{ color: 'var(--text-secondary)' }}>│ {'AIR TIME'.padEnd(20)}<span style={{ color: '#00FF88' }}>{String(airH + 'h').padStart(6)}</span>        │</div>
+      <div style={{ color: 'var(--text-secondary)' }}>│ {'TOTAL DISTANCE'.padEnd(20)}<span style={{ color: '#FF6B35' }}>{String(distKm + 'km').padStart(6)}</span>        │</div>
+      <div style={{ color: 'var(--text-secondary)' }}>│ {'LOG FORMATS'.padEnd(20)}<span style={{ color: '#A855F7' }}>{String(formats).padStart(6)}</span>        │</div>
+      <div style={{ color: 'var(--text-secondary)' }}>└{'─'.repeat(38)}┘</div>
+    </div>
+  );
+
+  if (layout === 'magazine') return (
+    <>
+      {[
+        { label: 'Flights',  value: flights,         suffix: '',   grad: 'linear-gradient(135deg,#6366F1,#8B5CF6)', icon: Plane },
+        { label: 'Air Time', value: airH,            suffix: 'h',  grad: 'linear-gradient(135deg,#059669,#10B981)', icon: Clock },
+        { label: 'Distance', value: distKm,          suffix: 'km', grad: 'linear-gradient(135deg,#D97706,#F59E0B)', icon: Globe },
+        { label: 'Formats',  value: formats,         suffix: '',   grad: 'linear-gradient(135deg,#DC2626,#EF4444)', icon: Layers },
+      ].map((c, i) => (
+        <div key={i} style={{ background: c.grad, borderRadius: 16, padding: '22px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 130 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{c.label}</span>
+            <c.icon size={18} color="rgba(255,255,255,0.6)" />
+          </div>
+          <div>
+            <span style={{ fontSize: 42, fontWeight: 900, color: '#fff', lineHeight: 1 }}>{c.value}</span>
+            <span style={{ fontSize: 20, fontWeight: 700, color: 'rgba(255,255,255,0.7)', marginLeft: 4 }}>{c.suffix}</span>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+
+  // default
+  return (
+    <>
+      {[
+        { label: 'Total Flights', value: flights,  icon: Plane,   color: '#3B82F6' },
+        { label: 'Air Time',      value: airH+'h', icon: Clock,   color: '#10B981' },
+        { label: 'Formats',       value: formats,  icon: Layers,  color: '#8B5CF6' },
+        { label: 'Distance',      value: distKm+'km', icon: Globe, color: '#F59E0B' },
+      ].map((c, i) => (
+        <div key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{c.label}</span>
+            <c.icon size={16} color={c.color} />
+          </div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-bright)', fontFamily: "'JetBrains Mono', monospace" }}>{c.value}</div>
+        </div>
+      ))}
+    </>
+  );
+};
+
+// ── Flight list item by layout ────────────────────────────────
+const FlightRow = ({ f, onSelect, fmtColors }) => {
+  const layout = useLayout();
+
+  if (layout === 'hud') {
+    const altM = f.max_altitude_m ? parseFloat(f.max_altitude_m).toFixed(0) : null;
+    const spd  = f.max_speed_ms  ? parseFloat(f.max_speed_ms).toFixed(1)  : null;
+    const col  = fmtColors[f.log_format] || 'var(--text-muted)';
+    return (
+      <div onClick={() => onSelect(f)} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', display: 'grid', gridTemplateColumns: '1fr auto auto auto auto', alignItems: 'center', gap: 16, transition: 'border-color 0.15s' }}
+        onMouseEnter={e => e.currentTarget.style.borderColor = '#00D4FF50'}
+        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{f.original_filename}</div>
+          <div style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'monospace' }}>{f.flight_date?.slice(0, 10) || '—'}</div>
+        </div>
+        {[
+          { label: 'FLT', value: formatDuration(f.flight_duration_sec || f.duration_sec), color: '#00D4FF' },
+          { label: 'ALT', value: altM ? altM + 'm' : '—', color: '#00FF88' },
+          { label: 'SPD', value: spd  ? spd  + 'm/s' : '—', color: '#FF6B35' },
+        ].map((s, i) => (
+          <div key={i} style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: s.color, fontFamily: 'monospace', textShadow: `0 0 8px ${s.color}` }}>{s.value}</div>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.1em' }}>{s.label}</div>
+          </div>
+        ))}
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: col, boxShadow: `0 0 6px ${col}` }} />
+      </div>
+    );
+  }
+
+  if (layout === 'terminal') {
+    const dur  = formatDuration(f.flight_duration_sec || f.duration_sec) || '—';
+    const alt  = f.max_altitude_m ? parseFloat(f.max_altitude_m).toFixed(0) + 'm' : '---';
+    const date = f.flight_date?.slice(0, 10) || '----------';
+    const fmt  = (f.log_format || 'unknown').replace(/_/g, '-');
+    const warn = f.warning_count > 0 ? ` [W:${f.warning_count}]` : '';
+    return (
+      <div onClick={() => onSelect(f)} style={{ fontFamily: 'monospace', fontSize: 12, padding: '5px 12px', cursor: 'pointer', borderRadius: 3, color: 'var(--text-secondary)', display: 'flex', gap: 12, transition: 'background 0.1s' }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent-bg)'; e.currentTarget.style.color = 'var(--accent)'; }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}>
+        <span style={{ color: 'var(--accent)', minWidth: 90 }}>{date}</span>
+        <span style={{ minWidth: 60 }}>{dur}</span>
+        <span style={{ color: '#FF6B35', minWidth: 50 }}>{alt}</span>
+        <span style={{ color: 'rgba(0,255,65,0.5)', minWidth: 120 }}>{fmt}</span>
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-faint)' }}>{f.original_filename}</span>
+        {warn && <span style={{ color: '#F59E0B' }}>{warn}</span>}
+      </div>
+    );
+  }
+
+  if (layout === 'magazine') {
+    const dur = formatDuration(f.flight_duration_sec || f.duration_sec);
+    const date = f.flight_date?.slice(0, 10) || '—';
+    const col = fmtColors[f.log_format] || '#8B5CF6';
+    return (
+      <div onClick={() => onSelect(f)} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s', display: 'flex', gap: 16, alignItems: 'center' }}
+        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 8px 24px ${col}25`; }}
+        onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}>
+        <div style={{ width: 48, height: 48, borderRadius: 12, background: `${col}25`, border: `1px solid ${col}50`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Plane size={22} color={col} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.original_filename}</div>
+          <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--text-muted)' }}>
+            <span>{date}</span>
+            <span style={{ color: col, fontWeight: 600 }}>{dur}</span>
+            {f.max_altitude_m && <span>↑ {parseFloat(f.max_altitude_m).toFixed(0)}m</span>}
+          </div>
+        </div>
+        {f.warning_count > 0 && <div style={{ fontSize: 11, background: '#F59E0B20', color: '#F59E0B', padding: '4px 10px', borderRadius: 20, fontWeight: 700 }}>{f.warning_count} ⚠</div>}
+        <div style={{ fontSize: 10, color: col, background: `${col}20`, padding: '4px 10px', borderRadius: 20, fontWeight: 700, textTransform: 'uppercase' }}>{(f.log_format || '?').replace(/_/g, ' ')}</div>
+      </div>
+    );
+  }
+
+  // default
+  return (
+    <div onClick={() => onSelect(f)} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', cursor: 'pointer', transition: 'border-color 0.15s' }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = '#3B82F650'}
+      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <Plane size={13} color={fmtColors[f.log_format] || 'var(--text-muted)'} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.original_filename}</span>
+        {f.warning_count > 0 && <span style={{ fontSize: 10, background: '#F59E0B20', color: '#F59E0B', padding: '2px 7px', borderRadius: 10, fontWeight: 600 }}>{f.warning_count}⚠</span>}
+        {f.parse_status !== 'complete' && <span style={{ fontSize: 10, background: '#3B82F620', color: '#3B82F6', padding: '2px 7px', borderRadius: 10 }}>{f.parse_status}</span>}
+      </div>
+      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-faint)' }}>
+        <span>{f.flight_date?.slice(0, 10) || '—'}</span>
+        <span>{formatDuration(f.flight_duration_sec || f.duration_sec)}{f.idle_before_sec > 0 && <span style={{ color: 'var(--text-faint)', fontSize: 10, marginLeft: 3 }}>+{formatDuration(f.idle_before_sec)} idle</span>}</span>
+        <span>{f.max_altitude_m ? `${parseFloat(f.max_altitude_m).toFixed(0)}m` : '—'}</span>
+        <span style={{ color: fmtColors[f.log_format] || 'var(--text-muted)', fontWeight: 600, marginLeft: 'auto' }}>{(f.log_format || '?').replace(/_/g, ' ').toUpperCase()}</span>
+      </div>
+    </div>
+  );
+};
+
 // ── Module: Statistics ────────────────────────────────────────
 const StatsModule = ({ flightData }) => {
+  const layout = useLayout();
   const stats = flightData || {};
   const cards = [
-    { label: 'Flight Time',    value: stats.flight_duration_sec ? formatDuration(stats.flight_duration_sec) : formatDuration(stats.duration_sec), icon: Clock, color: '#3B82F6' },
-    { label: 'Idle Before',   value: stats.idle_before_sec > 0 ? formatDuration(stats.idle_before_sec) : '—', icon: Clock, color: 'var(--text-faint)' },
-    { label: 'Total Duration', value: formatDuration(stats.duration_sec), icon: Clock,     color: 'var(--text-muted)' },
-    { label: 'Max Altitude',   value: stats.max_altitude_m ? `${parseFloat(stats.max_altitude_m).toFixed(1)}m` : '—', icon: MountainSnow, color: '#10B981' },
-    { label: 'Max Speed',      value: stats.max_speed_ms ? `${parseFloat(stats.max_speed_ms).toFixed(1)} m/s` : '—', icon: Gauge,    color: '#F59E0B' },
-    { label: 'Max Distance',   value: stats.max_distance_m ? `${parseFloat(stats.max_distance_m).toFixed(0)}m` : '—', icon: Globe,    color: '#8B5CF6' },
-    { label: 'Total Distance', value: stats.total_distance_m ? `${(parseFloat(stats.total_distance_m)/1000).toFixed(2)}km` : '—', icon: TrendingUp, color: '#06B6D4' },
-    { label: 'Min Battery',    value: stats.min_battery_v ? `${parseFloat(stats.min_battery_v).toFixed(2)}V` : '—', icon: Battery,  color: '#EF4444' },
-    { label: 'Warnings',       value: stats.warning_count ?? 1, icon: AlertTriangle, color: '#F97316' },
-    { label: 'Errors',         value: stats.error_count ?? 0,   icon: AlertCircle,   color: '#EF4444' },
+    { label: 'Flight Time',    value: stats.flight_duration_sec ? formatDuration(stats.flight_duration_sec) : formatDuration(stats.duration_sec), icon: Clock,         color: '#3B82F6', num: parseFloat(stats.flight_duration_sec || stats.duration_sec || 0), max: 7200 },
+    { label: 'Idle Before',    value: stats.idle_before_sec > 0 ? formatDuration(stats.idle_before_sec) : '—', icon: Clock,                          color: '#64748B',    num: parseFloat(stats.idle_before_sec || 0), max: 3600 },
+    { label: 'Total Duration', value: formatDuration(stats.duration_sec), icon: Clock,                                                                color: '#475569',    num: parseFloat(stats.duration_sec || 0), max: 7200 },
+    { label: 'Max Altitude',   value: stats.max_altitude_m ? `${parseFloat(stats.max_altitude_m).toFixed(1)}m` : '—', icon: MountainSnow,            color: '#10B981',    num: parseFloat(stats.max_altitude_m || 0), max: 400 },
+    { label: 'Max Speed',      value: stats.max_speed_ms ? `${parseFloat(stats.max_speed_ms).toFixed(1)} m/s` : '—', icon: Gauge,                    color: '#F59E0B',    num: parseFloat(stats.max_speed_ms || 0), max: 30 },
+    { label: 'Max Distance',   value: stats.max_distance_m ? `${parseFloat(stats.max_distance_m).toFixed(0)}m` : '—', icon: Globe,                   color: '#8B5CF6',    num: parseFloat(stats.max_distance_m || 0), max: 2000 },
+    { label: 'Total Distance', value: stats.total_distance_m ? `${(parseFloat(stats.total_distance_m)/1000).toFixed(2)}km` : '—', icon: TrendingUp,  color: '#06B6D4',    num: parseFloat(stats.total_distance_m || 0) / 1000, max: 10 },
+    { label: 'Min Battery',    value: stats.min_battery_v ? `${parseFloat(stats.min_battery_v).toFixed(2)}V` : '—', icon: Battery,                   color: '#EF4444',    num: parseFloat(stats.min_battery_v || 0), max: 25 },
+    { label: 'Warnings',       value: stats.warning_count ?? 0, icon: AlertTriangle,                                                                  color: '#F97316',    num: stats.warning_count ?? 0, max: 10 },
+    { label: 'Errors',         value: stats.error_count ?? 0,   icon: AlertCircle,                                                                    color: '#EF4444',    num: stats.error_count ?? 0, max: 5 },
   ];
+
+  if (layout === 'hud') return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
+      {cards.map((c, i) => (
+        <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <RadialGauge value={c.num} max={c.max} label={c.label.toUpperCase()} unit="" color={c.color} size={100} />
+          <div style={{ fontSize: 11, color: c.color, fontFamily: 'monospace', marginTop: -4, fontWeight: 700 }}>{c.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (layout === 'terminal') return (
+    <div style={{ fontFamily: 'monospace', fontSize: 12, lineHeight: 2 }}>
+      <div style={{ color: 'var(--accent)', marginBottom: 4 }}>$ cat flight_{stats.id}.stats</div>
+      {cards.map((c, i) => (
+        <div key={i} style={{ display: 'flex', gap: 8, color: 'var(--text-secondary)' }}>
+          <span style={{ color: 'var(--accent)', minWidth: 160 }}>{c.label.toLowerCase().replace(/ /g,'_')}</span>
+          <span style={{ color: 'rgba(255,255,255,0.3)' }}>=</span>
+          <span style={{ color: c.color, fontWeight: 700 }}>{c.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (layout === 'magazine') return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+      {cards.map((c, i) => (
+        <div key={i} style={{ borderRadius: 14, padding: '16px 18px', background: `linear-gradient(135deg, ${c.color}20, ${c.color}08)`, border: `1px solid ${c.color}30` }}>
+          <c.icon size={20} color={c.color} style={{ marginBottom: 10 }} />
+          <div style={{ fontSize: 24, fontWeight: 900, color: 'var(--text-bright)', lineHeight: 1, marginBottom: 4 }}>{c.value}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{c.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
       {cards.map((c, i) => (
@@ -484,6 +719,7 @@ import { useAuthStore } from './store.js';
 
 // ── Flight List ───────────────────────────────────────────────
 const FlightList = ({ onSelect, refresh }) => {
+  const layout = useLayout();
   const [flights, setFlights] = useState([]);
   const [loading, setLoading] = useState(true);
   const { token } = useAuthStore();
@@ -508,28 +744,18 @@ const FlightList = ({ onSelect, refresh }) => {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {flights.map(f => (
-        <div key={f.id} onClick={() => onSelect(f)}
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', cursor: 'pointer', transition: 'border-color 0.15s' }}
-          onMouseEnter={e => e.currentTarget.style.borderColor = '#3B82F650'}
-          onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <Plane size={13} color={fmtColors[f.log_format] || 'var(--text-muted)'} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.original_filename}</span>
-            {f.warning_count > 0 && <span style={{ fontSize: 10, background: '#F59E0B20', color: '#F59E0B', padding: '2px 7px', borderRadius: 10, fontWeight: 600 }}>{f.warning_count}⚠</span>}
-            {f.parse_status !== 'complete' && <span style={{ fontSize: 10, background: '#3B82F620', color: '#3B82F6', padding: '2px 7px', borderRadius: 10 }}>{f.parse_status}</span>}
-          </div>
-          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-faint)' }}>
-            <span>{f.flight_date?.slice(0, 10) || '—'}</span>
-            <span title={f.idle_before_sec > 0 ? `+${formatDuration(f.idle_before_sec)} idle` : undefined}>
-              {formatDuration(f.flight_duration_sec || f.duration_sec)}
-              {f.idle_before_sec > 0 && <span style={{ color: 'var(--text-faint)', fontSize: 10, marginLeft: 3 }}>+{formatDuration(f.idle_before_sec)} idle</span>}
-            </span>
-            <span>{f.max_altitude_m ? `${parseFloat(f.max_altitude_m).toFixed(0)}m` : '—'}</span>
-            <span style={{ color: fmtColors[f.log_format] || 'var(--text-muted)', fontWeight: 600, marginLeft: 'auto' }}>{(f.log_format || '?').replace(/_/g, ' ').toUpperCase()}</span>
-          </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: layout === 'terminal' ? 0 : 6 }}>
+      {layout === 'terminal' && (
+        <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-faint)', padding: '4px 12px 8px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 12 }}>
+          <span style={{ minWidth: 90 }}>DATE</span>
+          <span style={{ minWidth: 60 }}>DURATION</span>
+          <span style={{ minWidth: 50 }}>MAX ALT</span>
+          <span style={{ minWidth: 120 }}>FORMAT</span>
+          <span>FILENAME</span>
         </div>
+      )}
+      {flights.map(f => (
+        <FlightRow key={f.id} f={f} onSelect={onSelect} fmtColors={fmtColors} />
       ))}
     </div>
   );
@@ -674,8 +900,10 @@ export default function App() {
   const totalFmtCount = byFormat.reduce((s, f) => s + Number(f.cnt), 0) || 1;
   const fmtColors2 = { ardupilot_bin: '#10B981', mavlink_tlog: '#3B82F6', px4_ulog: '#8B5CF6', dji_txt: '#F59E0B', dji_csv: '#F97316', skyline_skylog: '#A78BFA', betaflight_bbl: '#EC4899', generic_csv: 'var(--text-muted)' };
 
+  const layout = themes[theme]?.layout || 'default';
+
   return (
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-app)', color: 'var(--text-primary)', fontFamily: "'Inter', system-ui, sans-serif", overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-app)', color: 'var(--text-primary)', fontFamily: layout === 'terminal' ? "'JetBrains Mono', 'Fira Code', monospace" : "'Inter', system-ui, sans-serif", overflow: 'hidden' }}>
 
       {/* Sidebar */}
       <div style={{ width: sidebarOpen ? 260 : 0, minWidth: sidebarOpen ? 260 : 0, background: 'var(--bg-panel)', borderRight: '1px solid var(--border-panel)', overflow: 'hidden', transition: 'width 0.25s ease, min-width 0.25s ease', display: 'flex', flexDirection: 'column' }}>
@@ -758,20 +986,7 @@ export default function App() {
           {/* DASHBOARD VIEW */}
           {view === 'dashboard' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
-              {[
-                { label: 'Total Flights', value: totals.flights ?? '—',   icon: Plane,     color: '#3B82F6' },
-                { label: 'Air Time',      value: totals.total_time ? `${(parseFloat(totals.total_time)/3600).toFixed(1)}h` : '—', icon: Clock, color: '#10B981' },
-                { label: 'Formats',       value: byFormat.length || '—',  icon: Layers,    color: '#8B5CF6' },
-                { label: 'Distance',      value: totals.total_dist ? `${(parseFloat(totals.total_dist)/1000).toFixed(0)}km` : '—', icon: Globe, color: '#F59E0B' },
-              ].map((c, i) => (
-                <div key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{c.label}</span>
-                    <c.icon size={16} color={c.color} />
-                  </div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-bright)', fontFamily: "'JetBrains Mono', monospace" }}>{c.value}</div>
-                </div>
-              ))}
+              <DashboardStats totals={totals} byFormat={byFormat} />
 
               {/* Flight list */}
               <div style={{ gridColumn: '1 / -1', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
