@@ -43,21 +43,44 @@ const defaultModules = [
 
 // ── Aircraft type definitions ─────────────────────────────────
 const AIRCRAFT_TYPES = {
-  fixed_wing: { label: 'Fixed Wing',         emoji: '✈',  specs: ['wingspan_mm','length_mm','auw_g','max_speed_kmh','endurance_min','range_km','motor_count'] },
-  fpv:        { label: 'FPV / Racing',        emoji: '🏎',  specs: ['frame_size_mm','motor_count','battery_cells','battery_mah','auw_g'] },
-  recon:      { label: 'Recon / Mapping',     emoji: '📷', specs: ['wingspan_mm','length_mm','auw_g','endurance_min','range_km','max_speed_kmh'] },
-  strike:     { label: 'Strike / Loitering',  emoji: '🎯', specs: ['auw_g','max_speed_kmh','range_km','endurance_min'] },
-  multirotor: { label: 'Multirotor',          emoji: '🚁', specs: ['frame_size_mm','motor_count','battery_cells','battery_mah','auw_g','endurance_min'] },
-  vtol:       { label: 'VTOL',                emoji: '🛫', specs: ['wingspan_mm','auw_g','endurance_min','range_km'] },
-  helicopter: { label: 'Helicopter',          emoji: '🚁', specs: ['auw_g','endurance_min'] },
-  other:      { label: 'Other',               emoji: '✈',  specs: ['auw_g','endurance_min'] },
+  fixed_wing: { label: 'Fixed Wing',        emoji: '✈',  specs: ['wingspan_mm','length_mm','auw_g','max_speed_kmh','cruise_speed_kmh','stall_speed_kmh','endurance_min','range_km','motor_count'] },
+  fpv:        { label: 'FPV / Racing',       emoji: '🏎', specs: ['frame_size_mm','motor_count','battery_cells','battery_mah','auw_g'] },
+  recon:      { label: 'Recon / Mapping',    emoji: '📷', specs: ['wingspan_mm','length_mm','auw_g','cruise_speed_kmh','max_speed_kmh','endurance_min','range_km','payload_g'] },
+  strike:     { label: 'Strike / Loitering', emoji: '🎯', specs: ['auw_g','payload_g','max_speed_kmh','cruise_speed_kmh','range_km','endurance_min'] },
+  multirotor: { label: 'Multirotor',         emoji: '🚁', specs: ['frame_size_mm','motor_count','battery_cells','battery_mah','auw_g','endurance_min'] },
+  vtol:       { label: 'VTOL',               emoji: '🛫', specs: ['wingspan_mm','auw_g','endurance_min','range_km'] },
+  helicopter: { label: 'Helicopter',         emoji: '🚁', specs: ['auw_g','endurance_min'] },
+  other:      { label: 'Other',              emoji: '✈',  specs: ['auw_g','endurance_min'] },
 };
 const SPEC_LABELS = {
   auw_g: 'Weight (g)', wingspan_mm: 'Wingspan (mm)', length_mm: 'Length (mm)',
   frame_size_mm: 'Frame (mm)', motor_count: 'Motors', battery_cells: 'Battery Cells',
   battery_mah: 'Battery (mAh)', endurance_min: 'Endurance (min)', max_speed_kmh: 'Max Speed (km/h)',
-  range_km: 'Range (km)',
+  cruise_speed_kmh: 'Cruise Speed (km/h)', stall_speed_kmh: 'Stall Speed (km/h)',
+  range_km: 'Range (km)', payload_g: 'Payload (g)',
 };
+
+// Extra type-specific fields stored in the `specs` JSON column
+const TYPE_EXTRA_SPECS = {
+  fixed_wing: [
+    { key: 'power_type',  label: 'Power Type',   type: 'select', options: ['electric','gasoline','turbine','jet'] },
+    { key: 'prop_size',   label: 'Prop Size',     type: 'text',   placeholder: 'e.g. 15×8' },
+    { key: 'autopilot',   label: 'Autopilot',     type: 'text',   placeholder: 'e.g. ArduPlane, iNav' },
+  ],
+  recon: [
+    { key: 'camera_payload', label: 'Camera / Payload', type: 'text',   placeholder: 'e.g. Sony A7R, FLIR Vue' },
+    { key: 'sensor_type',    label: 'Sensor Type',      type: 'select', options: ['rgb','multispectral','thermal','lidar','sar'] },
+    { key: 'gsd_cm',         label: 'GSD (cm/px)',      type: 'text',   placeholder: 'at reference altitude' },
+    { key: 'datalink',       label: 'Datalink',         type: 'text',   placeholder: 'e.g. RFD900, MAVLink' },
+  ],
+  strike: [
+    { key: 'guidance_system', label: 'Guidance System', type: 'text',   placeholder: 'e.g. GPS/INS, IR, Optical' },
+    { key: 'warhead_type',    label: 'Warhead Type',    type: 'text',   placeholder: 'e.g. HE, shaped charge' },
+    { key: 'fuze_type',       label: 'Fuze Type',       type: 'text',   placeholder: 'e.g. impact, proximity' },
+    { key: 'datalink',        label: 'Datalink',        type: 'text',   placeholder: 'e.g. jam-resistant RF' },
+  ],
+};
+
 const MAINT_TYPES = { repair:'Repair', inspection:'Inspection', part_swap:'Part Swap', crash:'Crash', upgrade:'Upgrade', other:'Other' };
 
 // ── Sample flight data for demo ──────────────────────────────
@@ -1349,8 +1372,8 @@ const AircraftView = () => {
   // ── Aircraft Form (add/edit) ──────────────────────────────────
   if (editing !== null) {
     const isNew = editing === 'new';
-    const init = isNew ? { name:'', type:'fixed_wing', make:'', model:'', serial_number:'', firmware:'', firmware_ver:'', notes:'', status:'active', purchase_date:'', auw_g:'', wingspan_mm:'', length_mm:'', frame_size_mm:'', motor_count:'', battery_cells:'', battery_mah:'', endurance_min:'', max_speed_kmh:'', range_km:'' }
-      : { ...editing, purchase_date: editing.purchase_date || '', auw_g: editing.auw_g||'', wingspan_mm: editing.wingspan_mm||'', length_mm: editing.length_mm||'', frame_size_mm: editing.frame_size_mm||'', motor_count: editing.motor_count||'', battery_cells: editing.battery_cells||'', battery_mah: editing.battery_mah||'', endurance_min: editing.endurance_min||'', max_speed_kmh: editing.max_speed_kmh||'', range_km: editing.range_km||'' };
+    const init = isNew ? { name:'', type:'fixed_wing', make:'', model:'', serial_number:'', firmware:'', firmware_ver:'', notes:'', status:'active', purchase_date:'', auw_g:'', wingspan_mm:'', length_mm:'', frame_size_mm:'', motor_count:'', battery_cells:'', battery_mah:'', endurance_min:'', max_speed_kmh:'', cruise_speed_kmh:'', stall_speed_kmh:'', range_km:'', payload_g:'', specs:{} }
+      : { ...editing, purchase_date: editing.purchase_date||'', auw_g: editing.auw_g||'', wingspan_mm: editing.wingspan_mm||'', length_mm: editing.length_mm||'', frame_size_mm: editing.frame_size_mm||'', motor_count: editing.motor_count||'', battery_cells: editing.battery_cells||'', battery_mah: editing.battery_mah||'', endurance_min: editing.endurance_min||'', max_speed_kmh: editing.max_speed_kmh||'', cruise_speed_kmh: editing.cruise_speed_kmh||'', stall_speed_kmh: editing.stall_speed_kmh||'', range_km: editing.range_km||'', payload_g: editing.payload_g||'', specs: editing.specs||{} };
 
     return <AircraftForm initial={init} isNew={isNew} token={token} inp={inp} lbl={lbl}
       onCancel={() => setEditing(null)}
@@ -1397,6 +1420,23 @@ const AircraftView = () => {
                   <div key={k}>
                     <div style={{ fontSize: 10, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{SPEC_LABELS[k] || k}</div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{selected[k]}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Extra specs from JSON */}
+          {(() => {
+            const extras = TYPE_EXTRA_SPECS[selected.type] || [];
+            const filled = extras.filter(f => selected.specs?.[f.key]);
+            if (!filled.length) return null;
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px,1fr))', gap: 10, marginTop: 12, padding: '12px 0 0', borderTop: '1px solid var(--border-subtle)' }}>
+                {filled.map(f => (
+                  <div key={f.key}>
+                    <div style={{ fontSize: 10, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{f.label}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{selected.specs[f.key]}</div>
                   </div>
                 ))}
               </div>
@@ -1593,6 +1633,34 @@ const AircraftForm = ({ initial, isNew, token, inp, lbl, onCancel, onSaved }) =>
                 <div key={k}>
                   {lbl(SPEC_LABELS[k] || k)}
                   <input style={inp} type="number" min="0" value={form[k] || ''} onChange={e => set(k, e.target.value)} placeholder="—" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Type-specific extra specs (specs JSON) */}
+        {TYPE_EXTRA_SPECS[form.type]?.length > 0 && (
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em', borderTop: '1px solid var(--border-subtle)', paddingTop: 14 }}>
+              {AIRCRAFT_TYPES[form.type]?.label} — Advanced
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {TYPE_EXTRA_SPECS[form.type].map(field => (
+                <div key={field.key}>
+                  {lbl(field.label)}
+                  {field.type === 'select' ? (
+                    <select style={{ ...inp, cursor: 'pointer', appearance: 'none' }}
+                      value={form.specs?.[field.key] || ''}
+                      onChange={e => set('specs', { ...form.specs, [field.key]: e.target.value })}>
+                      <option value="">— select —</option>
+                      {field.options.map(o => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
+                    </select>
+                  ) : (
+                    <input style={inp} type="text" placeholder={field.placeholder || ''}
+                      value={form.specs?.[field.key] || ''}
+                      onChange={e => set('specs', { ...form.specs, [field.key]: e.target.value })} />
+                  )}
                 </div>
               ))}
             </div>

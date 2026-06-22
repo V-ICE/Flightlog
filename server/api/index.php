@@ -426,7 +426,8 @@ function getAircraft(array $user, int $id): array {
 function createAircraft(array $user, array $body): array {
     $specFields = ['specs'];
     $numericFields = ['auw_g','wingspan_mm','length_mm','frame_size_mm','motor_count',
-                      'battery_cells','battery_mah','endurance_min','max_speed_kmh','range_km'];
+                      'battery_cells','battery_mah','endurance_min','max_speed_kmh',
+                      'cruise_speed_kmh','stall_speed_kmh','range_km','payload_g'];
     $data = [
         'user_id'       => $user['sub'],
         'name'          => htmlspecialchars($body['name'] ?? 'My UAV'),
@@ -450,9 +451,11 @@ function createAircraft(array $user, array $body): array {
 function updateAircraft(array $user, int $id, array $body): array {
     $allowed = ['name','type','make','model','serial_number','firmware','firmware_ver','notes',
                 'status','purchase_date','auw_g','wingspan_mm','length_mm','frame_size_mm',
-                'motor_count','battery_cells','battery_mah','endurance_min','max_speed_kmh','range_km','specs'];
+                'motor_count','battery_cells','battery_mah','endurance_min','max_speed_kmh',
+                'cruise_speed_kmh','stall_speed_kmh','range_km','payload_g','specs'];
     $numericFields = ['auw_g','wingspan_mm','length_mm','frame_size_mm','motor_count',
-                      'battery_cells','battery_mah','endurance_min','max_speed_kmh','range_km'];
+                      'battery_cells','battery_mah','endurance_min','max_speed_kmh',
+                      'cruise_speed_kmh','stall_speed_kmh','range_km','payload_g'];
     $updates = [];
     foreach ($allowed as $f) {
         if (!array_key_exists($f, $body)) continue;
