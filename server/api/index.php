@@ -42,7 +42,8 @@ try {
 
         // ── Authentication ────────────────────────────────────
         case 'POST:auth':
-            switch ($sub) {
+            $action = $parts[1] ?? '';
+            switch ($action) {
                 case 'register': echo json_encode(authRegister($body)); break;
                 case 'login':    echo json_encode(authLogin($body));    break;
                 case 'refresh':  echo json_encode(authRefresh());       break;

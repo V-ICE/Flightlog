@@ -292,7 +292,7 @@ class VideoHandler {
         }
     }
 
-    private function parseMoov(resource $fp, int $start, int $end, array &$meta): void {
+    private function parseMoov(mixed $fp, int $start, int $end, array &$meta): void {
         $pos = $start;
         while ($pos < $end - 8) {
             fseek($fp, $pos);
@@ -347,7 +347,7 @@ class VideoHandler {
         }
     }
 
-    private function parseTrak(resource $fp, int $start, int $end, array &$meta): void {
+    private function parseTrak(mixed $fp, int $start, int $end, array &$meta): void {
         $pos = $start;
         while ($pos < $end - 8) {
             fseek($fp, $pos);
@@ -364,7 +364,7 @@ class VideoHandler {
         }
     }
 
-    private function parseMdia(resource $fp, int $start, int $end, array &$meta): void {
+    private function parseMdia(mixed $fp, int $start, int $end, array &$meta): void {
         $pos = $start;
         while ($pos < $end - 8) {
             fseek($fp, $pos);
@@ -381,7 +381,7 @@ class VideoHandler {
         }
     }
 
-    private function parseMinf(resource $fp, int $start, int $end, array &$meta): void {
+    private function parseMinf(mixed $fp, int $start, int $end, array &$meta): void {
         // Look for stbl → stsd for codec, stts for fps
         $pos = $start;
         while ($pos < $end - 8) {
@@ -399,7 +399,7 @@ class VideoHandler {
         }
     }
 
-    private function parseStbl(resource $fp, int $start, int $end, array &$meta): void {
+    private function parseStbl(mixed $fp, int $start, int $end, array &$meta): void {
         $pos = $start;
         while ($pos < $end - 8) {
             fseek($fp, $pos);

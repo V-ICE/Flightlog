@@ -296,12 +296,12 @@ const EventsModule = ({ data }) => {
 const StatsModule = ({ flightData }) => {
   const stats = flightData || {};
   const cards = [
-    { label: 'Duration',       value: formatDuration(stats.duration_sec || 598), icon: Clock,     color: '#3B82F6' },
-    { label: 'Max Altitude',   value: `${stats.max_altitude_m?.toFixed(1) || '120.0'}m`, icon: MountainSnow, color: '#10B981' },
-    { label: 'Max Speed',      value: `${stats.max_speed_ms?.toFixed(1) || '12.4'} m/s`, icon: Gauge,    color: '#F59E0B' },
-    { label: 'Max Distance',   value: `${stats.max_distance_m?.toFixed(0) || '380'}m`,  icon: Globe,    color: '#8B5CF6' },
-    { label: 'Total Distance', value: `${((stats.total_distance_m || 1850)/1000).toFixed(2)}km`, icon: TrendingUp, color: '#06B6D4' },
-    { label: 'Min Battery',    value: `${stats.min_battery_v?.toFixed(2) || '14.2'}V`,  icon: Battery,  color: '#EF4444' },
+    { label: 'Duration',       value: formatDuration(stats.duration_sec), icon: Clock,     color: '#3B82F6' },
+    { label: 'Max Altitude',   value: stats.max_altitude_m ? `${parseFloat(stats.max_altitude_m).toFixed(1)}m` : '—', icon: MountainSnow, color: '#10B981' },
+    { label: 'Max Speed',      value: stats.max_speed_ms ? `${parseFloat(stats.max_speed_ms).toFixed(1)} m/s` : '—', icon: Gauge,    color: '#F59E0B' },
+    { label: 'Max Distance',   value: stats.max_distance_m ? `${parseFloat(stats.max_distance_m).toFixed(0)}m` : '—', icon: Globe,    color: '#8B5CF6' },
+    { label: 'Total Distance', value: stats.total_distance_m ? `${(parseFloat(stats.total_distance_m)/1000).toFixed(2)}km` : '—', icon: TrendingUp, color: '#06B6D4' },
+    { label: 'Min Battery',    value: stats.min_battery_v ? `${parseFloat(stats.min_battery_v).toFixed(2)}V` : '—', icon: Battery,  color: '#EF4444' },
     { label: 'Warnings',       value: stats.warning_count ?? 1, icon: AlertTriangle, color: '#F97316' },
     { label: 'Errors',         value: stats.error_count ?? 0,   icon: AlertCircle,   color: '#EF4444' },
   ];
@@ -396,16 +396,56 @@ const UploadZone = ({ onUpload }) => {
   const [progress, setProgress] = useState(null);
   const [status, setStatus] = useState(null);
   const inputRef = useRef();
+  const { token } = useAuthStore();
 
-  const handle = (file) => {
+  const handle = async (file) => {
     if (!file) return;
     setProgress(0);
-    setStatus({ type: 'analyzing', msg: '🤖 AI analyzing log format…' });
-    // Simulate AI detection
-    setTimeout(() => setStatus({ type: 'detecting', msg: `✅ Detected: ArduPilot BIN (98% confidence)` }), 800);
-    setTimeout(() => { setProgress(35); setStatus({ type: 'parsing', msg: '⚙️ Parsing telemetry data…' }); }, 1200);
-    setTimeout(() => { setProgress(70); setStatus({ type: 'storing', msg: '💾 Storing flight data…' }); }, 2200);
-    setTimeout(() => { setProgress(100); setStatus({ type: 'done', msg: `✅ Import complete! ${file.name}` }); onUpload?.(); }, 3500);
+    setStatus({ type: 'uploading', msg: 'Uploading log file…' });
+    try {
+      const fd = new FormData();
+      fd.append('log', file);
+      const res = await fetch('/api/v1/flights', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const json = await res.json();
+      if (json.error) {
+        setStatus({ type: 'error', msg: `Error: ${json.error}` });
+        return;
+      }
+      setProgress(50);
+      setStatus({ type: 'processing', msg: `Detected: ${json.format || 'unknown'} (${json.format_confidence || '?'}% confidence) — parsing…` });
+      // Poll until parse_status is complete or error
+      const flightId = json.flight_id;
+      let attempts = 0;
+      const poll = async () => {
+        const r = await fetch(`/api/v1/flights/${flightId}`, { headers: { Authorization: `Bearer ${token}` } });
+        const f = await r.json();
+        if (f.parse_status === 'complete') {
+          setProgress(100);
+          setStatus({ type: 'done', msg: `Import complete! ${f.original_filename}` });
+          onUpload?.();
+        } else if (f.parse_status === 'error') {
+          setStatus({ type: 'error', msg: `Parse error: ${f.parse_error || 'unknown'}` });
+        } else if (attempts++ < 30) {
+          setProgress(50 + attempts * 1.5);
+          setTimeout(poll, 1000);
+        } else {
+          setStatus({ type: 'error', msg: 'Timed out waiting for parse result' });
+        }
+      };
+      if (json.status === 'complete') {
+        setProgress(100);
+        setStatus({ type: 'done', msg: `Import complete! ${file.name}` });
+        onUpload?.();
+      } else {
+        setTimeout(poll, 1000);
+      }
+    } catch (e) {
+      setStatus({ type: 'error', msg: `Upload failed: ${e.message}` });
+    }
   };
 
   return (
@@ -435,17 +475,33 @@ const UploadZone = ({ onUpload }) => {
   );
 };
 
+// ── Auth Store (Zustand) ──────────────────────────────────────
+import { useAuthStore } from './store.js';
+
 // ── Flight List ───────────────────────────────────────────────
-const FlightList = ({ onSelect }) => {
-  const flights = [
-    { id: 1, name: 'DJIFlightRecord_2025-05-15.txt', format: 'dji_txt', date: '2025-05-15', duration: 598, altitude: 120, status: 'complete', warnings: 1 },
-    { id: 2, name: '2025-05-10-ArduCopter.BIN', format: 'ardupilot_bin', date: '2025-05-10', duration: 1240, altitude: 85, status: 'complete', warnings: 0 },
-    { id: 3, name: 'px4_log_2025-05-01.ulg', format: 'px4_ulog', date: '2025-05-01', duration: 445, altitude: 60, status: 'complete', warnings: 2 },
-    { id: 4, name: 'survey_mission.tlog', format: 'mavlink_tlog', date: '2025-04-28', duration: 3600, altitude: 110, status: 'complete', warnings: 0 },
-    { id: 5, name: 'betaflight_session.bbl', format: 'betaflight_bbl', date: '2025-04-22', duration: 180, altitude: 25, status: 'complete', warnings: 3 },
-  ];
+const FlightList = ({ onSelect, refresh }) => {
+  const [flights, setFlights] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { token } = useAuthStore();
+
+  useEffect(() => {
+    setLoading(true);
+    fetch('/api/v1/flights?limit=50', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { setFlights(d.data || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [token, refresh]);
 
   const fmtColors = { ardupilot_bin: '#10B981', mavlink_tlog: '#3B82F6', px4_ulog: '#8B5CF6', dji_txt: '#F59E0B', dji_csv: '#F97316', skyline_skylog: '#A78BFA', betaflight_bbl: '#EC4899', generic_csv: '#64748B' };
+
+  if (loading) return <div style={emptyStyle}>Loading flights…</div>;
+  if (!flights.length) return (
+    <div style={{ textAlign: 'center', padding: '32px 20px', color: '#475569' }}>
+      <Plane size={32} style={{ margin: '0 auto 12px', display: 'block', opacity: 0.3 }} />
+      <div style={{ fontSize: 14, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>No flights yet</div>
+      <div style={{ fontSize: 12, color: '#475569' }}>Import a log file to get started</div>
+    </div>
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -455,15 +511,16 @@ const FlightList = ({ onSelect }) => {
           onMouseEnter={e => e.currentTarget.style.borderColor = '#3B82F650'}
           onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <Plane size={13} color={fmtColors[f.format] || '#64748B'} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#CBD5E1', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-            {f.warnings > 0 && <span style={{ fontSize: 10, background: '#F59E0B20', color: '#F59E0B', padding: '2px 7px', borderRadius: 10, fontWeight: 600 }}>{f.warnings}⚠</span>}
+            <Plane size={13} color={fmtColors[f.log_format] || '#64748B'} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#CBD5E1', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.original_filename}</span>
+            {f.warning_count > 0 && <span style={{ fontSize: 10, background: '#F59E0B20', color: '#F59E0B', padding: '2px 7px', borderRadius: 10, fontWeight: 600 }}>{f.warning_count}⚠</span>}
+            {f.parse_status !== 'complete' && <span style={{ fontSize: 10, background: '#3B82F620', color: '#3B82F6', padding: '2px 7px', borderRadius: 10 }}>{f.parse_status}</span>}
           </div>
           <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#475569' }}>
-            <span>{f.date}</span>
-            <span>{formatDuration(f.duration)}</span>
-            <span>{f.altitude}m</span>
-            <span style={{ color: fmtColors[f.format] || '#64748B', fontWeight: 600, marginLeft: 'auto' }}>{f.format.replace('_', ' ').toUpperCase()}</span>
+            <span>{f.flight_date?.slice(0, 10) || '—'}</span>
+            <span>{formatDuration(f.duration_sec)}</span>
+            <span>{f.max_altitude_m ? `${parseFloat(f.max_altitude_m).toFixed(0)}m` : '—'}</span>
+            <span style={{ color: fmtColors[f.log_format] || '#64748B', fontWeight: 600, marginLeft: 'auto' }}>{(f.log_format || '?').replace(/_/g, ' ').toUpperCase()}</span>
           </div>
         </div>
       ))}
@@ -471,37 +528,147 @@ const FlightList = ({ onSelect }) => {
   );
 };
 
+// ── Auth Screen ───────────────────────────────────────────────
+const AuthScreen = () => {
+  const [mode, setMode] = useState('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { login } = useAuthStore();
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError(''); setLoading(true);
+    try {
+      const url = mode === 'login' ? '/api/v1/auth/login' : '/api/v1/auth/register';
+      const body = mode === 'login' ? { email, password } : { email, password, display_name: name };
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const json = await res.json();
+      if (json.error) { setError(json.error); return; }
+      login(json.token, json.user);
+    } catch (e) {
+      setError('Connection failed — is the server running?');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', height: '100vh', background: '#060D1A', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 380, background: '#0A1628', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 32 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }}>
+          <div style={{ width: 36, height: 36, background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Plane size={20} color="white" />
+          </div>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#F1F5F9' }}>UAVLogBook</div>
+            <div style={{ fontSize: 11, color: '#475569' }}>Flight Analysis Platform</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: '#0F172A', borderRadius: 10, padding: 4 }}>
+          {['login','register'].map(m => (
+            <button key={m} onClick={() => { setMode(m); setError(''); }}
+              style={{ flex: 1, padding: '7px 0', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                background: mode === m ? '#3B82F6' : 'transparent', color: mode === m ? 'white' : '#64748B' }}>
+              {m === 'login' ? 'Sign In' : 'Register'}
+            </button>
+          ))}
+        </div>
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {mode === 'register' && (
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Display name" required
+              style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px 12px', color: '#E2E8F0', fontSize: 13, outline: 'none' }} />
+          )}
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" required
+            style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px 12px', color: '#E2E8F0', fontSize: 13, outline: 'none' }} />
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" required
+            style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px 12px', color: '#E2E8F0', fontSize: 13, outline: 'none' }} />
+          {error && <div style={{ fontSize: 12, color: '#EF4444', background: '#EF444415', borderRadius: 8, padding: '8px 12px' }}>{error}</div>}
+          <button type="submit" disabled={loading}
+            style={{ background: '#3B82F6', border: 'none', color: 'white', padding: '11px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700, opacity: loading ? 0.6 : 1 }}>
+            {loading ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Create Account'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // ── Main App ──────────────────────────────────────────────────
 export default function App() {
+  const { isAuthenticated, user, logout, token } = useAuthStore();
   const [modules, setModules] = useState(defaultModules);
   const [selectedFlight, setSelectedFlight] = useState(null);
   const [flightData, setFlightData] = useState(null);
-  const [view, setView] = useState('dashboard'); // dashboard | flight | upload | settings
+  const [flightLoading, setFlightLoading] = useState(false);
+  const [view, setView] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [uploadRefresh, setUploadRefresh] = useState(0);
-  // Shared playhead: ms from log start — drives all modules + video sync in sync
+  const [dashStats, setDashStats] = useState(null);
   const [playheadMs, setPlayheadMs] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
 
   const enabledModules = modules.filter(m => m.enabled).sort((a, b) => modules.indexOf(a) - modules.indexOf(b));
 
-  const handleSelectFlight = (flight) => {
+  // Load dashboard stats
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    fetch('/api/v1/stats', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => setDashStats(d))
+      .catch(() => {});
+  }, [isAuthenticated, token, uploadRefresh]);
+
+  const handleSelectFlight = async (flight) => {
     setSelectedFlight(flight);
-    setFlightData(generateFlightData());
+    setFlightData(null);
     setPlayheadMs(0);
     setView('flight');
+    setFlightLoading(true);
+    try {
+      const [gpsR, attR, battR, imuR, evR] = await Promise.all([
+        fetch(`/api/v1/flights/${flight.id}/gps`,      { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+        fetch(`/api/v1/flights/${flight.id}/attitude`,  { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+        fetch(`/api/v1/flights/${flight.id}/battery`,   { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+        fetch(`/api/v1/flights/${flight.id}/imu`,       { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+        fetch(`/api/v1/flights/${flight.id}/events`,    { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      ]);
+      const n = v => (v === null || v === undefined) ? null : parseFloat(v);
+      const gps  = (gpsR.telemetry  || []).map(p => ({ t: Math.round(p.t_ms/1000), lat: n(p.lat), lng: n(p.lng), alt_m: n(p.alt_m), alt_amsl_m: n(p.alt_amsl_m), speed_ms: n(p.speed_ms), hdop: n(p.hdop), sats: p.sats, fix_type: p.fix_type }));
+      const att  = (attR.telemetry  || []).map(p => ({ t: Math.round(p.t_ms/1000), roll: n(p.roll_deg), pitch: n(p.pitch_deg), yaw: n(p.yaw_deg) }));
+      const batt = (battR.telemetry || []).map(p => ({ t: Math.round(p.t_ms/1000), voltage: n(p.voltage_v), current: n(p.current_a), remaining: n(p.remaining_pct) }));
+      const imu  = (imuR.telemetry  || []).map(p => ({ t: Math.round(p.t_ms/1000), vx: n(p.vibe_x), vy: n(p.vibe_y), vz: n(p.vibe_z), ax: n(p.accel_x), ay: n(p.accel_y), az: n(p.accel_z) }));
+      const alt   = gps.map(p => ({ t: p.t, alt: p.alt_m, alt_gps: p.alt_amsl_m }));
+      const speed = gps.map(p => ({ t: p.t, ground: p.speed_ms, vertical: 0 }));
+      const gpsQ  = gps.map(p => ({ t: p.t, sats: p.sats, hdop: p.hdop, fix: p.fix_type }));
+      const events = (evR.events || evR.telemetry || []).map(e => ({ ...e }));
+      setFlightData({ gps, alt, att, speed, batt, gpsQ, imu, events });
+    } catch (e) {
+      console.error('Failed to load telemetry', e);
+    } finally {
+      setFlightLoading(false);
+    }
   };
 
   const toggleModule = (key) => {
     setModules(prev => prev.map(m => m.key === key ? { ...m, enabled: !m.enabled } : m));
   };
 
+  if (!isAuthenticated) return <AuthScreen />;
+
+  const totals = dashStats?.totals || {};
+  const monthly = (dashStats?.monthly || []).map(m => ({ m: m.m?.slice(0, 7), n: Number(m.cnt) })).reverse();
+  const byFormat = dashStats?.byFormat || [];
+  const totalFmtCount = byFormat.reduce((s, f) => s + Number(f.cnt), 0) || 1;
+  const fmtColors2 = { ardupilot_bin: '#10B981', mavlink_tlog: '#3B82F6', px4_ulog: '#8B5CF6', dji_txt: '#F59E0B', dji_csv: '#F97316', skyline_skylog: '#A78BFA', betaflight_bbl: '#EC4899', generic_csv: '#64748B' };
+
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#060D1A', color: '#E2E8F0', fontFamily: "'Inter', system-ui, sans-serif", overflow: 'hidden' }}>
 
       {/* Sidebar */}
       <div style={{ width: sidebarOpen ? 260 : 0, minWidth: sidebarOpen ? 260 : 0, background: '#0A1628', borderRight: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', transition: 'width 0.25s ease, min-width 0.25s ease', display: 'flex', flexDirection: 'column' }}>
-        {/* Logo */}
         <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -513,13 +680,10 @@ export default function App() {
             </div>
           </div>
         </div>
-
-        {/* Nav */}
         <nav style={{ padding: '12px 10px', flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
           {[
-            { key: 'dashboard', icon: Home,   label: 'Dashboard' },
+            { key: 'dashboard', icon: Home,    label: 'Dashboard' },
             { key: 'upload',    icon: Upload,  label: 'Import Log' },
-            { key: 'aircraft',  icon: Plane,   label: 'Aircraft' },
             { key: 'settings',  icon: Settings,label: 'Settings' },
           ].map(item => (
             <button key={item.key} onClick={() => setView(item.key)}
@@ -529,20 +693,18 @@ export default function App() {
             </button>
           ))}
         </nav>
-
-        {/* Module toggles in sidebar */}
         <div style={{ padding: '0 10px 12px' }}>
           <ModuleTogglePanel modules={modules} onToggle={toggleModule} />
         </div>
-
-        {/* User */}
         <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>P</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#CBD5E1' }}>Pilot</div>
-            <div style={{ fontSize: 10, color: '#475569' }}>admin@uavlog.com</div>
+          <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>
+            {(user?.display_name || 'P')[0].toUpperCase()}
           </div>
-          <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: 4 }} title="Logout"><LogOut size={14} /></button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#CBD5E1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.display_name || 'Pilot'}</div>
+            <div style={{ fontSize: 10, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email}</div>
+          </div>
+          <button onClick={logout} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: 4 }} title="Logout"><LogOut size={14} /></button>
         </div>
       </div>
 
@@ -554,26 +716,24 @@ export default function App() {
           <button onClick={() => setSidebarOpen(s => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 4 }}>
             <Menu size={18} />
           </button>
-
           {view === 'flight' && selectedFlight && (
             <>
               <button onClick={() => setView('dashboard')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
                 <ArrowLeft size={14} />
               </button>
-              <span style={{ fontSize: 14, fontWeight: 600, color: '#CBD5E1' }}>{selectedFlight.name}</span>
-              <span style={{ fontSize: 11, color: '#F59E0B', background: '#F59E0B15', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>{selectedFlight.format?.replace('_',' ').toUpperCase()}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: '#CBD5E1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFlight.original_filename}</span>
+              <span style={{ fontSize: 11, color: '#F59E0B', background: '#F59E0B15', padding: '2px 8px', borderRadius: 10, fontWeight: 600, flexShrink: 0 }}>{selectedFlight.log_format?.replace(/_/g,' ').toUpperCase()}</span>
             </>
           )}
-
           {view === 'dashboard' && (
             <>
               <span style={{ fontSize: 14, fontWeight: 600, color: '#CBD5E1' }}>Dashboard</span>
               <div style={{ flex: 1 }} />
               <div style={{ display: 'flex', gap: 8 }}>
                 {[
-                  { label: '47 Flights', color: '#3B82F6' },
-                  { label: '38.5h Air', color: '#10B981' },
-                  { label: '214 km', color: '#8B5CF6' },
+                  { label: `${totals.flights || 0} Flights`, color: '#3B82F6' },
+                  { label: totals.total_time ? `${(parseFloat(totals.total_time)/3600).toFixed(1)}h Air` : '0h Air', color: '#10B981' },
+                  { label: totals.total_dist ? `${(parseFloat(totals.total_dist)/1000).toFixed(0)}km` : '0km', color: '#8B5CF6' },
                 ].map((s, i) => (
                   <div key={i} style={{ fontSize: 11, color: s.color, background: `${s.color}15`, padding: '4px 10px', borderRadius: 8, fontWeight: 600 }}>{s.label}</div>
                 ))}
@@ -588,12 +748,11 @@ export default function App() {
           {/* DASHBOARD VIEW */}
           {view === 'dashboard' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
-              {/* Summary cards */}
               {[
-                { label: 'Total Flights', value: 47, icon: Plane, color: '#3B82F6' },
-                { label: 'Air Time',      value: '38.5h', icon: Clock, color: '#10B981' },
-                { label: 'Formats',       value: '6',    icon: Layers, color: '#8B5CF6' },
-                { label: 'Distance',      value: '214km', icon: Globe, color: '#F59E0B' },
+                { label: 'Total Flights', value: totals.flights ?? '—',   icon: Plane,     color: '#3B82F6' },
+                { label: 'Air Time',      value: totals.total_time ? `${(parseFloat(totals.total_time)/3600).toFixed(1)}h` : '—', icon: Clock, color: '#10B981' },
+                { label: 'Formats',       value: byFormat.length || '—',  icon: Layers,    color: '#8B5CF6' },
+                { label: 'Distance',      value: totals.total_dist ? `${(parseFloat(totals.total_dist)/1000).toFixed(0)}km` : '—', icon: Globe, color: '#F59E0B' },
               ].map((c, i) => (
                 <div key={i} style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -604,7 +763,7 @@ export default function App() {
                 </div>
               ))}
 
-              {/* Flight list — spans full width */}
+              {/* Flight list */}
               <div style={{ gridColumn: '1 / -1', background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
                   <h2 style={{ fontSize: 14, fontWeight: 700, color: '#CBD5E1', margin: 0 }}>Recent Flights</h2>
@@ -613,59 +772,62 @@ export default function App() {
                     <Upload size={13} /> Import Log
                   </button>
                 </div>
-                <FlightList onSelect={handleSelectFlight} />
+                <FlightList onSelect={handleSelectFlight} refresh={uploadRefresh} />
               </div>
 
-              {/* Mini charts */}
-              <div style={{ gridColumn: '1 / span 2', background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
-                <h3 style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8', marginBottom: 12 }}>Flights per Month</h3>
-                <ResponsiveContainer width="100%" height={140}>
-                  <BarChart data={[{m:'Jan',n:3},{m:'Feb',n:5},{m:'Mar',n:4},{m:'Apr',n:8},{m:'May',n:12},{m:'Jun',n:6}]}>
-                    <XAxis dataKey="m" tick={{ fill: '#64748B', fontSize: 11 }} />
-                    <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
-                    <Tooltip contentStyle={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }} />
-                    <Bar dataKey="n" fill="#3B82F6" opacity={0.8} radius={[4,4,0,0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div style={{ gridColumn: 'span 2', background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
-                <h3 style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8', marginBottom: 12 }}>Log Formats</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {[
-                    { fmt: 'ArduPilot BIN', pct: 38, color: '#10B981' },
-                    { fmt: 'DJI TXT',       pct: 28, color: '#F59E0B' },
-                    { fmt: 'PX4 ULog',      pct: 18, color: '#8B5CF6' },
-                    { fmt: 'MAVLink TLOG',  pct: 10, color: '#3B82F6' },
-                    { fmt: 'Betaflight',    pct: 6,  color: '#EC4899' },
-                  ].map((f, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
-                      <span style={{ width: 100, color: '#94A3B8', flexShrink: 0 }}>{f.fmt}</span>
-                      <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
-                        <div style={{ width: `${f.pct}%`, height: '100%', background: f.color, borderRadius: 4 }} />
-                      </div>
-                      <span style={{ width: 32, color: '#64748B', textAlign: 'right' }}>{f.pct}%</span>
-                    </div>
-                  ))}
+              {/* Monthly chart */}
+              {monthly.length > 0 && (
+                <div style={{ gridColumn: '1 / span 2', background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8', marginBottom: 12 }}>Flights per Month</h3>
+                  <ResponsiveContainer width="100%" height={140}>
+                    <BarChart data={monthly}>
+                      <XAxis dataKey="m" tick={{ fill: '#64748B', fontSize: 11 }} />
+                      <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
+                      <Tooltip contentStyle={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }} />
+                      <Bar dataKey="n" fill="#3B82F6" opacity={0.8} radius={[4,4,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
-              </div>
+              )}
+
+              {/* Format breakdown */}
+              {byFormat.length > 0 && (
+                <div style={{ gridColumn: monthly.length > 0 ? 'span 2' : '1 / -1', background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8', marginBottom: 12 }}>Log Formats</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {byFormat.map((f, i) => {
+                      const pct = Math.round((Number(f.cnt) / totalFmtCount) * 100);
+                      const color = fmtColors2[f.log_format] || '#64748B';
+                      return (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+                          <span style={{ width: 120, color: '#94A3B8', flexShrink: 0 }}>{(f.log_format || '?').replace(/_/g,' ')}</span>
+                          <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 4 }} />
+                          </div>
+                          <span style={{ width: 32, color: '#64748B', textAlign: 'right' }}>{f.cnt}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* FLIGHT ANALYSIS VIEW */}
           {view === 'flight' && selectedFlight && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {/* Flight summary bar */}
               <div style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
                 <div>
                   <div style={{ fontSize: 11, color: '#64748B' }}>Format</div>
-                  <div style={{ fontSize: 13, color: '#F59E0B', fontWeight: 700 }}>{selectedFlight.format?.replace('_',' ').toUpperCase()}</div>
+                  <div style={{ fontSize: 13, color: '#F59E0B', fontWeight: 700 }}>{selectedFlight.log_format?.replace(/_/g,' ').toUpperCase()}</div>
                 </div>
                 {[
-                  { label: 'Date', value: selectedFlight.date },
-                  { label: 'Duration', value: formatDuration(selectedFlight.duration) },
-                  { label: 'Max Alt', value: `${selectedFlight.altitude}m` },
-                  { label: 'Warnings', value: selectedFlight.warnings, color: selectedFlight.warnings > 0 ? '#F59E0B' : '#10B981' },
+                  { label: 'Date',     value: selectedFlight.flight_date?.slice(0,10) || '—' },
+                  { label: 'Duration', value: formatDuration(selectedFlight.duration_sec) },
+                  { label: 'Max Alt',  value: selectedFlight.max_altitude_m ? `${parseFloat(selectedFlight.max_altitude_m).toFixed(0)}m` : '—' },
+                  { label: 'Max Speed',value: selectedFlight.max_speed_ms ? `${parseFloat(selectedFlight.max_speed_ms).toFixed(1)}m/s` : '—' },
+                  { label: 'Warnings', value: selectedFlight.warning_count ?? 0, color: selectedFlight.warning_count > 0 ? '#F59E0B' : '#10B981' },
                 ].map((s, i) => (
                   <div key={i}>
                     <div style={{ fontSize: 11, color: '#64748B' }}>{s.label}</div>
@@ -674,17 +836,22 @@ export default function App() {
                 ))}
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                   <button style={{ ...btnSmallStyle }}><Share2 size={13} /> Share</button>
-                  <button style={{ ...btnSmallStyle }}><Download size={13} /> Export</button>
                 </div>
               </div>
 
-              {/* Enabled modules */}
-              {enabledModules.map((mod) => (
+              {flightLoading && (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#475569' }}>
+                  <RefreshCw size={24} style={{ margin: '0 auto 12px', display: 'block', animation: 'spin 1s linear infinite' }} />
+                  <div>Loading telemetry…</div>
+                </div>
+              )}
+
+              {!flightLoading && enabledModules.map((mod) => (
                 <ModuleCard key={mod.key} module={mod} data={flightData} flightData={selectedFlight} onToggle={toggleModule}
                   playheadMs={playheadMs} onPlayheadChange={setPlayheadMs} onPlay={setIsPlaying} />
               ))}
 
-              {!enabledModules.length && (
+              {!flightLoading && !enabledModules.length && (
                 <div style={{ textAlign: 'center', padding: '60px 20px', color: '#475569' }}>
                   <EyeOff size={40} style={{ margin: '0 auto 12px' }} />
                   <div>All modules hidden. Enable modules in the sidebar.</div>
@@ -698,8 +865,7 @@ export default function App() {
             <div style={{ maxWidth: 600, margin: '0 auto' }}>
               <h2 style={{ fontSize: 18, fontWeight: 700, color: '#E2E8F0', marginBottom: 6 }}>Import Flight Log</h2>
               <p style={{ fontSize: 13, color: '#64748B', marginBottom: 20 }}>AI automatically detects the log format and maps all fields — no manual configuration needed.</p>
-              <UploadZone onUpload={() => setTimeout(() => setView('dashboard'), 1000)} />
-
+              <UploadZone onUpload={() => { setUploadRefresh(r => r + 1); setTimeout(() => setView('dashboard'), 1200); }} />
               <div style={{ marginTop: 24, background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 18 }}>
                 <h3 style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8', marginBottom: 12 }}>Supported Formats</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -731,16 +897,14 @@ export default function App() {
           {view === 'settings' && (
             <div style={{ maxWidth: 500 }}>
               <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, color: '#E2E8F0' }}>Settings</h2>
-              {[
-                { label: 'API Server URL', placeholder: 'https://yourdomain.com/api/v1', type: 'url' },
-                { label: 'Anthropic API Key (for AI import)', placeholder: 'sk-ant-...', type: 'password' },
-              ].map((f, i) => (
-                <div key={i} style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: 12, color: '#94A3B8', marginBottom: 6, fontWeight: 600 }}>{f.label}</label>
-                  <input type={f.type} placeholder={f.placeholder} style={{ width: '100%', background: '#0F172A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '9px 12px', color: '#E2E8F0', fontSize: 13, boxSizing: 'border-box' }} />
-                </div>
-              ))}
-              <button style={{ background: '#3B82F6', border: 'none', color: 'white', padding: '10px 24px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Save Settings</button>
+              <div style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#94A3B8', marginBottom: 4 }}>Signed in as</div>
+                <div style={{ fontSize: 15, color: '#E2E8F0', fontWeight: 700 }}>{user?.display_name}</div>
+                <div style={{ fontSize: 12, color: '#475569' }}>{user?.email}</div>
+              </div>
+              <button onClick={logout} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#EF444415', border: '1px solid #EF444430', color: '#EF4444', padding: '10px 20px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                <LogOut size={14} /> Sign Out
+              </button>
             </div>
           )}
         </div>

@@ -113,7 +113,7 @@ class PX4ULogParser {
         $offset = 0;
         foreach ($defs as $def) {
             if (!preg_match('/^(\w+)\s+(\w+)(\[(\d+)\])?$/', trim($def), $m)) continue;
-            [$, $type, $name, , $arrLen] = $m + ['','','','',''];
+            [, $type, $name, , $arrLen] = $m + ['','','','',''];
             $arrLen = $arrLen ? (int)$arrLen : 1;
             [$fmt, $size] = $this->ulogType($type);
             for ($i = 0; $i < $arrLen; $i++) {

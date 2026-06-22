@@ -62,8 +62,8 @@ services:
       VITE_API_URL: ${VITE_API_URL:-/api/v1}
       NODE_ENV: production
     volumes:
-      # Mount web source
-      - ./web:/build:ro
+      # Mount web source (not :ro — Docker needs to create /build/dist mountpoint)
+      - ./web:/build
       # Write built output to named volume shared with app
       - web_dist:/build/dist
     # Build only if dist/index.html doesn't already exist (cache-friendly)
@@ -71,9 +71,9 @@ services:
       sh -c "
         if [ ! -f /build/dist/index.html ]; then
           echo '>>> Installing npm dependencies...' &&
-          npm ci --prefer-offline &&
+          npm install --include=dev &&
           echo '>>> Building React app...' &&
-          npm run build &&
+          node node_modules/vite/bin/vite.js build &&
           echo '>>> Build complete.'
         else
           echo '>>> dist/ already exists, skipping build.'
@@ -113,11 +113,12 @@ services:
     volumes:
       # PHP source code (hot-reload in dev; bind-mount)
       - ./server:/var/www/html/api:ro
-      # Built React app from builder
-      - web_dist:/var/www/html:ro
+      # Built React app from builder (not :ro — Docker needs to create /var/www/html/api mountpoint)
+      - web_dist:/var/www/html
       # Persistent user uploads (logs + videos) — writable
       - uploads_logs:/var/www/uploads/logs
       - uploads_videos:/var/www/uploads/videos
+      - uploads_tmp:/var/www/uploads/tmp
       # Apache config (read-only)
       - ./docker/php/apache.conf:/etc/apache2/sites-enabled/000-default.conf:ro
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/uavlogbook.ini:ro
@@ -169,6 +170,8 @@ volumes:
     name: uavlogbook_uploads_logs
   uploads_videos:
     name: uavlogbook_uploads_videos
+  uploads_tmp:
+    name: uavlogbook_uploads_tmp
   ssl_certs:
     name: uavlogbook_ssl_certs
   letsencrypt_webroot:

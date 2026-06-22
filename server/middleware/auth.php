@@ -27,7 +27,7 @@ class Auth {
     }
 
     public static function requireAuth(): array {
-        $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? '';
+        $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? getallheaders()['Authorization'] ?? '';
         if (preg_match('/^Bearer\s+(.+)$/i', $auth, $m)) {
             $token = $m[1];
         } else {
