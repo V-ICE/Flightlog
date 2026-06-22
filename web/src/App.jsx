@@ -20,7 +20,8 @@ import {
 import { VideoSyncModule } from "./VideoSync.jsx";
 import { useUIStore } from './store.js';
 import { themes, applyTheme } from './themes.js';
-import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip as LeafletTooltip, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip as LeafletTooltip, useMap } from 'react-leaflet';
+import L from 'leaflet';
 import { formatCoord, parseCoord, COORD_FORMATS } from './coords.js';
 
 // ── Minimal in-memory state (no localStorage) ────────────────
@@ -231,6 +232,25 @@ const HomePositionPicker = ({ flightId, onConfirm }) => {
   );
 };
 
+// Bearing in degrees between two lat/lng points
+const calcBearing = (lat1, lng1, lat2, lng2) => {
+  const dL = (lng2 - lng1) * Math.PI / 180;
+  const r1 = lat1 * Math.PI / 180, r2 = lat2 * Math.PI / 180;
+  const y = Math.sin(dL) * Math.cos(r2);
+  const x = Math.cos(r1) * Math.sin(r2) - Math.sin(r1) * Math.cos(r2) * Math.cos(dL);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+};
+
+const arrowIcon = (bearing, color) => L.divIcon({
+  className: '',
+  html: `<svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg"
+           style="transform:rotate(${bearing}deg);transform-origin:center">
+    <polygon points="9,1 15,16 9,12 3,16" fill="${color}" stroke="rgba(0,0,0,0.5)" stroke-width="1"/>
+  </svg>`,
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
+
 // ── Tile layer definitions ────────────────────────────────────
 const TILE_LAYERS = {
   Satellite: {
@@ -327,6 +347,19 @@ const MapModule = ({ data, flightData }) => {
         {!homeOnly && segments.map((seg, i) => (
           <Polyline key={i} positions={seg.pts} color={seg.color} weight={3} opacity={0.9} />
         ))}
+
+        {/* Direction arrows — one every ~5% of the track */}
+        {!homeOnly && (() => {
+          const interval = Math.max(1, Math.floor(gps.length / 20));
+          return gps.slice(0, -interval).filter((_, i) => i % interval === 0).map((p, i) => {
+            const next = gps[Math.min((i + 1) * interval, gps.length - 1)];
+            const bearing = calcBearing(p.lat, p.lng, next.lat, next.lng);
+            const hue = Math.round(120 - ((p.alt_m || 0) / maxAlt) * 120);
+            return (
+              <Marker key={i} position={[p.lat, p.lng]} icon={arrowIcon(bearing, `hsl(${hue},85%,65%)`)} />
+            );
+          });
+        })()}
 
         {/* Home marker */}
         <CircleMarker center={positions[0]} radius={8} pathOptions={{ color: '#10B981', fillColor: '#10B981', fillOpacity: 0.9, weight: 2 }}>
