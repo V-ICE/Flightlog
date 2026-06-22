@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // UAVLogBook — Main React Web Application
 // Full-featured UAV flight log analysis dashboard
 // ============================================================
@@ -18,6 +18,8 @@ import {
   TrendingUp, Globe, Layers, Video
 } from "lucide-react";
 import { VideoSyncModule } from "./VideoSync.jsx";
+import { useUIStore } from './store.js';
+import { themes, applyTheme } from './themes.js';
 
 // ── Minimal in-memory state (no localStorage) ────────────────
 const defaultModules = [
@@ -78,8 +80,8 @@ const generateFlightData = () => {
 const ChartTooltip = ({ active, payload, label, unit = '' }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: 'rgba(15,20,35,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
-      <p style={{ color: '#94A3B8', marginBottom: 4 }}>{`t = ${label}s`}</p>
+    <div style={{ background: 'var(--chart-bg)', border: '1px solid var(--border-tooltip)', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+      <p style={{ color: 'var(--text-tertiary)', marginBottom: 4 }}>{`t = ${label}s`}</p>
       {payload.map((p, i) => (
         <p key={i} style={{ color: p.color, margin: '2px 0' }}>
           {p.name}: <strong>{p.value}{unit}</strong>
@@ -109,10 +111,10 @@ const MapModule = ({ data }) => {
   const maxAlt = Math.max(...gps.map(p => p.alt_m || 0));
 
   return (
-    <div style={{ background: '#0F1729', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
+    <div style={{ background: 'var(--bg-card)', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
       <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 10, display: 'flex', gap: 6 }}>
         {['Satellite','Terrain','Streets'].map(s => (
-          <button key={s} style={{ ...btnSmallStyle, background: s === 'Satellite' ? '#3B82F6' : 'rgba(255,255,255,0.1)' }}>{s}</button>
+          <button key={s} style={{ ...btnSmallStyle, background: s === 'Satellite' ? '#3B82F6' : 'var(--border-tooltip)' }}>{s}</button>
         ))}
       </div>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
@@ -120,8 +122,8 @@ const MapModule = ({ data }) => {
         <rect width={W} height={H} fill="#0D1B2A" />
         {Array.from({length: 8}, (_,i) => (
           <g key={i}>
-            <line x1={i*W/7} y1={0} x2={i*W/7} y2={H} stroke="rgba(255,255,255,0.04)" />
-            <line x1={0} y1={i*H/7} x2={W} y2={i*H/7} stroke="rgba(255,255,255,0.04)" />
+            <line x1={i*W/7} y1={0} x2={i*W/7} y2={H} stroke="var(--grid-line)" />
+            <line x1={0} y1={i*H/7} x2={W} y2={i*H/7} stroke="var(--grid-line)" />
           </g>
         ))}
         {/* Altitude-colored path segments */}
@@ -144,9 +146,9 @@ const MapModule = ({ data }) => {
       </svg>
       {/* Altitude legend */}
       <div style={{ position: 'absolute', bottom: 8, right: 8, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.6)', padding: '4px 10px', borderRadius: 6 }}>
-        <span style={{ fontSize: 10, color: '#64748B' }}>0m</span>
+        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>0m</span>
         <div style={{ width: 60, height: 8, borderRadius: 4, background: 'linear-gradient(to right, hsl(120,80%,55%), hsl(0,80%,55%))' }} />
-        <span style={{ fontSize: 10, color: '#64748B' }}>{maxAlt.toFixed(0)}m</span>
+        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{maxAlt.toFixed(0)}m</span>
       </div>
     </div>
   );
@@ -162,14 +164,14 @@ const AltitudeModule = ({ data }) => (
           <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
         </linearGradient>
       </defs>
-      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-      <XAxis dataKey="t" tick={{ fill: '#64748B', fontSize: 11 }} tickFormatter={v => `${v}s`} />
-      <YAxis tick={{ fill: '#64748B', fontSize: 11 }} tickFormatter={v => `${v}m`} />
+      <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" />
+      <XAxis dataKey="t" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}s`} />
+      <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}m`} />
       <Tooltip content={<ChartTooltip unit="m" />} />
-      <Legend wrapperStyle={{ color: '#94A3B8', fontSize: 12 }} />
+      <Legend wrapperStyle={{ color: 'var(--text-tertiary)', fontSize: 12 }} />
       <Area type="monotone" dataKey="alt" name="Baro Alt" stroke="#10B981" fill="url(#altGrad)" strokeWidth={2} dot={false} />
       <Area type="monotone" dataKey="alt_gps" name="GPS Alt" stroke="#06B6D4" fill="none" strokeWidth={1.5} strokeDasharray="4 2" dot={false} />
-      <Brush dataKey="t" height={20} stroke="#1E293B" fill="#0F172A" travellerWidth={6} />
+      <Brush dataKey="t" height={20} stroke="var(--brush-stroke)" fill="var(--bg-card)" travellerWidth={6} />
     </AreaChart>
   </ResponsiveContainer>
 );
@@ -178,16 +180,16 @@ const AltitudeModule = ({ data }) => (
 const AttitudeModule = ({ data }) => (
   <ResponsiveContainer width="100%" height={200}>
     <LineChart data={data?.att || []} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-      <XAxis dataKey="t" tick={{ fill: '#64748B', fontSize: 11 }} tickFormatter={v => `${v}s`} />
-      <YAxis tick={{ fill: '#64748B', fontSize: 11 }} tickFormatter={v => `${v}°`} domain={[-180, 180]} />
+      <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" />
+      <XAxis dataKey="t" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}s`} />
+      <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}°`} domain={[-180, 180]} />
       <Tooltip content={<ChartTooltip unit="°" />} />
-      <Legend wrapperStyle={{ color: '#94A3B8', fontSize: 12 }} />
-      <ReferenceLine y={0} stroke="rgba(255,255,255,0.1)" />
+      <Legend wrapperStyle={{ color: 'var(--text-tertiary)', fontSize: 12 }} />
+      <ReferenceLine y={0} stroke="var(--border-tooltip)" />
       <Line type="monotone" dataKey="roll"  name="Roll"  stroke="#8B5CF6" strokeWidth={1.5} dot={false} />
       <Line type="monotone" dataKey="pitch" name="Pitch" stroke="#EC4899" strokeWidth={1.5} dot={false} />
       <Line type="monotone" dataKey="yaw"   name="Yaw"   stroke="#F59E0B" strokeWidth={1.5} dot={false} />
-      <Brush dataKey="t" height={20} stroke="#1E293B" fill="#0F172A" travellerWidth={6} />
+      <Brush dataKey="t" height={20} stroke="var(--brush-stroke)" fill="var(--bg-card)" travellerWidth={6} />
     </LineChart>
   </ResponsiveContainer>
 );
@@ -202,14 +204,14 @@ const SpeedModule = ({ data }) => (
           <stop offset="95%" stopColor="#F59E0B" stopOpacity={0} />
         </linearGradient>
       </defs>
-      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-      <XAxis dataKey="t" tick={{ fill: '#64748B', fontSize: 11 }} tickFormatter={v => `${v}s`} />
-      <YAxis tick={{ fill: '#64748B', fontSize: 11 }} tickFormatter={v => `${v}m/s`} />
+      <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" />
+      <XAxis dataKey="t" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}s`} />
+      <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}m/s`} />
       <Tooltip content={<ChartTooltip unit="m/s" />} />
-      <Legend wrapperStyle={{ color: '#94A3B8', fontSize: 12 }} />
+      <Legend wrapperStyle={{ color: 'var(--text-tertiary)', fontSize: 12 }} />
       <Area type="monotone" dataKey="ground"   name="Ground Speed" stroke="#F59E0B" fill="url(#speedGrad)" strokeWidth={2} dot={false} />
       <Line type="monotone" dataKey="vertical" name="Vert Speed"   stroke="#06B6D4" strokeWidth={1.5} dot={false} />
-      <Brush dataKey="t" height={20} stroke="#1E293B" fill="#0F172A" travellerWidth={6} />
+      <Brush dataKey="t" height={20} stroke="var(--brush-stroke)" fill="var(--bg-card)" travellerWidth={6} />
     </AreaChart>
   </ResponsiveContainer>
 );
@@ -218,17 +220,17 @@ const SpeedModule = ({ data }) => (
 const BatteryModule = ({ data }) => (
   <ResponsiveContainer width="100%" height={200}>
     <LineChart data={data?.batt || []} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-      <XAxis dataKey="t" tick={{ fill: '#64748B', fontSize: 11 }} tickFormatter={v => `${v}s`} />
-      <YAxis yAxisId="left"  tick={{ fill: '#64748B', fontSize: 11 }} tickFormatter={v => `${v}V`} domain={[12, 18]} />
-      <YAxis yAxisId="right" orientation="right" tick={{ fill: '#64748B', fontSize: 11 }} tickFormatter={v => `${v}%`} domain={[0, 100]} />
+      <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" />
+      <XAxis dataKey="t" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}s`} />
+      <YAxis yAxisId="left"  tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}V`} domain={[12, 18]} />
+      <YAxis yAxisId="right" orientation="right" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}%`} domain={[0, 100]} />
       <Tooltip content={<ChartTooltip />} />
-      <Legend wrapperStyle={{ color: '#94A3B8', fontSize: 12 }} />
+      <Legend wrapperStyle={{ color: 'var(--text-tertiary)', fontSize: 12 }} />
       <ReferenceLine yAxisId="left" y={14.8} stroke="#EF4444" strokeDasharray="4 2" label={{ value: 'Low', fill: '#EF4444', fontSize: 10 }} />
       <Line yAxisId="left"  type="monotone" dataKey="voltage"   name="Voltage (V)"    stroke="#EF4444" strokeWidth={2} dot={false} />
       <Line yAxisId="right" type="monotone" dataKey="remaining" name="Remaining (%)"  stroke="#F97316" strokeWidth={1.5} dot={false} />
       <Line yAxisId="left"  type="monotone" dataKey="current"   name="Current (A)"    stroke="#A78BFA" strokeWidth={1.5} dot={false} />
-      <Brush dataKey="t" height={20} stroke="#1E293B" fill="#0F172A" travellerWidth={6} />
+      <Brush dataKey="t" height={20} stroke="var(--brush-stroke)" fill="var(--bg-card)" travellerWidth={6} />
     </LineChart>
   </ResponsiveContainer>
 );
@@ -237,12 +239,12 @@ const BatteryModule = ({ data }) => (
 const GPSQualityModule = ({ data }) => (
   <ResponsiveContainer width="100%" height={200}>
     <BarChart data={data?.gpsQ || []} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-      <XAxis dataKey="t" tick={{ fill: '#64748B', fontSize: 11 }} tickFormatter={v => `${v}s`} interval="preserveStartEnd" />
-      <YAxis yAxisId="left"  tick={{ fill: '#64748B', fontSize: 11 }} label={{ value: 'Sats', fill:'#64748B', fontSize:10, angle:-90, position:'insideLeft' }} />
-      <YAxis yAxisId="right" orientation="right" tick={{ fill: '#64748B', fontSize: 11 }} label={{ value: 'HDOP', fill:'#64748B', fontSize:10, angle:90, position:'insideRight' }} domain={[0, 3]} />
+      <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" />
+      <XAxis dataKey="t" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}s`} interval="preserveStartEnd" />
+      <YAxis yAxisId="left"  tick={{ fill: 'var(--text-muted)', fontSize: 11 }} label={{ value: 'Sats', fill:'var(--text-muted)', fontSize:10, angle:-90, position:'insideLeft' }} />
+      <YAxis yAxisId="right" orientation="right" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} label={{ value: 'HDOP', fill:'var(--text-muted)', fontSize:10, angle:90, position:'insideRight' }} domain={[0, 3]} />
       <Tooltip content={<ChartTooltip />} />
-      <Legend wrapperStyle={{ color: '#94A3B8', fontSize: 12 }} />
+      <Legend wrapperStyle={{ color: 'var(--text-tertiary)', fontSize: 12 }} />
       <Bar     yAxisId="left"  dataKey="sats" name="Satellites" fill="#06B6D4" opacity={0.7} />
       <Line    yAxisId="right" type="monotone" dataKey="hdop" name="HDOP" stroke="#F59E0B" strokeWidth={2} dot={false} />
     </BarChart>
@@ -253,15 +255,15 @@ const GPSQualityModule = ({ data }) => (
 const IMUModule = ({ data }) => (
   <ResponsiveContainer width="100%" height={200}>
     <LineChart data={data?.imu || []} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-      <XAxis dataKey="t" tick={{ fill: '#64748B', fontSize: 11 }} tickFormatter={v => `${v}s`} />
-      <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
+      <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" />
+      <XAxis dataKey="t" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `${v}s`} />
+      <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
       <Tooltip content={<ChartTooltip />} />
-      <Legend wrapperStyle={{ color: '#94A3B8', fontSize: 12 }} />
+      <Legend wrapperStyle={{ color: 'var(--text-tertiary)', fontSize: 12 }} />
       <Line type="monotone" dataKey="vx" name="Vibe X" stroke="#EC4899" strokeWidth={1.5} dot={false} />
       <Line type="monotone" dataKey="vy" name="Vibe Y" stroke="#8B5CF6" strokeWidth={1.5} dot={false} />
       <Line type="monotone" dataKey="vz" name="Vibe Z" stroke="#06B6D4" strokeWidth={1.5} dot={false} />
-      <Brush dataKey="t" height={20} stroke="#1E293B" fill="#0F172A" travellerWidth={6} />
+      <Brush dataKey="t" height={20} stroke="var(--brush-stroke)" fill="var(--bg-card)" travellerWidth={6} />
     </LineChart>
   </ResponsiveContainer>
 );
@@ -281,8 +283,8 @@ const EventsModule = ({ data }) => {
         return (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: `${color}10`, borderLeft: `3px solid ${color}`, borderRadius: '0 6px 6px 0' }}>
             <Icon size={14} color={color} style={{ flexShrink: 0 }} />
-            <span style={{ fontSize: 11, color: '#94A3B8', width: 55, flexShrink: 0 }}>{tSec}s</span>
-            <span style={{ fontSize: 12, color: '#E2E8F0' }}>{ev.description}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', width: 55, flexShrink: 0 }}>{tSec}s</span>
+            <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>{ev.description}</span>
             <span style={{ fontSize: 10, color: color, marginLeft: 'auto', textTransform: 'uppercase', fontWeight: 600 }}>{ev.severity}</span>
           </div>
         );
@@ -297,8 +299,8 @@ const StatsModule = ({ flightData }) => {
   const stats = flightData || {};
   const cards = [
     { label: 'Flight Time',    value: stats.flight_duration_sec ? formatDuration(stats.flight_duration_sec) : formatDuration(stats.duration_sec), icon: Clock, color: '#3B82F6' },
-    { label: 'Idle Before',   value: stats.idle_before_sec > 0 ? formatDuration(stats.idle_before_sec) : '—', icon: Clock, color: '#475569' },
-    { label: 'Total Duration', value: formatDuration(stats.duration_sec), icon: Clock,     color: '#64748B' },
+    { label: 'Idle Before',   value: stats.idle_before_sec > 0 ? formatDuration(stats.idle_before_sec) : '—', icon: Clock, color: 'var(--text-faint)' },
+    { label: 'Total Duration', value: formatDuration(stats.duration_sec), icon: Clock,     color: 'var(--text-muted)' },
     { label: 'Max Altitude',   value: stats.max_altitude_m ? `${parseFloat(stats.max_altitude_m).toFixed(1)}m` : '—', icon: MountainSnow, color: '#10B981' },
     { label: 'Max Speed',      value: stats.max_speed_ms ? `${parseFloat(stats.max_speed_ms).toFixed(1)} m/s` : '—', icon: Gauge,    color: '#F59E0B' },
     { label: 'Max Distance',   value: stats.max_distance_m ? `${parseFloat(stats.max_distance_m).toFixed(0)}m` : '—', icon: Globe,    color: '#8B5CF6' },
@@ -312,8 +314,8 @@ const StatsModule = ({ flightData }) => {
       {cards.map((c, i) => (
         <div key={i} style={{ background: `${c.color}15`, border: `1px solid ${c.color}30`, borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
           <c.icon size={16} color={c.color} />
-          <div style={{ fontSize: 18, fontWeight: 700, color: '#E2E8F0', fontFamily: "'JetBrains Mono', monospace" }}>{c.value}</div>
-          <div style={{ fontSize: 11, color: '#64748B' }}>{c.label}</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', fontFamily: "'JetBrains Mono', monospace" }}>{c.value}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.label}</div>
         </div>
       ))}
     </div>
@@ -351,14 +353,14 @@ const ModuleCard = ({ module: mod, data, flightData, onToggle, playheadMs, onPla
   const Icon = mod.icon;
 
   return (
-    <div style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, overflow: 'hidden', transition: 'all 0.2s' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(255,255,255,0.02)', cursor: 'pointer', userSelect: 'none' }}
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', transition: 'all 0.2s' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--bg-module-header)', cursor: 'pointer', userSelect: 'none' }}
         onClick={() => setCollapsed(c => !c)}>
         <div style={{ width: 6, height: 6, borderRadius: '50%', background: mod.color, flexShrink: 0 }} />
         <Icon size={15} color={mod.color} style={{ flexShrink: 0 }} />
-        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: '#CBD5E1' }}>{mod.label}</span>
+        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>{mod.label}</span>
         <button onClick={(e) => { e.stopPropagation(); onToggle(mod.key); }} title="Hide module"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#475569' }}>
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--text-faint)' }}>
           <EyeOff size={13} />
         </button>
         {collapsed ? <ChevronRight size={14} color="#475569" /> : <ChevronDown size={14} color="#475569" />}
@@ -374,8 +376,8 @@ const ModuleCard = ({ module: mod, data, flightData, onToggle, playheadMs, onPla
 
 // ── Module Toggle Panel ───────────────────────────────────────
 const ModuleTogglePanel = ({ modules, onToggle }) => (
-  <div style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 16 }}>
-    <h3 style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>View Modules</h3>
+  <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-input)', borderRadius: 12, padding: 16 }}>
+    <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>View Modules</h3>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {modules.map((mod) => {
         const Icon = mod.icon;
@@ -383,8 +385,8 @@ const ModuleTogglePanel = ({ modules, onToggle }) => (
           <label key={mod.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 8, cursor: 'pointer', background: mod.enabled ? `${mod.color}12` : 'transparent', transition: 'background 0.15s' }}>
             <input type="checkbox" checked={mod.enabled} onChange={() => onToggle(mod.key)}
               style={{ accentColor: mod.color, width: 14, height: 14 }} />
-            <Icon size={13} color={mod.enabled ? mod.color : '#475569'} />
-            <span style={{ fontSize: 12, color: mod.enabled ? '#CBD5E1' : '#475569' }}>{mod.label}</span>
+            <Icon size={13} color={mod.enabled ? mod.color : 'var(--text-faint)'} />
+            <span style={{ fontSize: 12, color: mod.enabled ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{mod.label}</span>
           </label>
         );
       })}
@@ -456,18 +458,18 @@ const UploadZone = ({ onUpload }) => {
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => { e.preventDefault(); setDragging(false); handle(e.dataTransfer.files[0]); }}
       onClick={() => inputRef.current.click()}
-      style={{ border: `2px dashed ${dragging ? '#3B82F6' : 'rgba(255,255,255,0.1)'}`, borderRadius: 16, padding: '40px 20px', textAlign: 'center', cursor: 'pointer', background: dragging ? 'rgba(59,130,246,0.05)' : '#0F172A', transition: 'all 0.2s' }}>
+      style={{ border: `2px dashed ${dragging ? '#3B82F6' : 'var(--border-tooltip)'}`, borderRadius: 16, padding: '40px 20px', textAlign: 'center', cursor: 'pointer', background: dragging ? 'rgba(59,130,246,0.05)' : 'var(--bg-card)', transition: 'all 0.2s' }}>
       <input ref={inputRef} type="file" accept=".bin,.tlog,.ulg,.ulog,.csv,.txt,.log,.gpx,.kml,.kmz,.bbl,.bfl,.skylog" hidden onChange={(e) => handle(e.target.files[0])} />
       <Upload size={36} color="#3B82F6" style={{ margin: '0 auto 12px' }} />
-      <div style={{ fontSize: 15, fontWeight: 600, color: '#E2E8F0', marginBottom: 6 }}>Drop flight log or click to browse</div>
-      <div style={{ fontSize: 12, color: '#64748B', marginBottom: 16 }}>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>Drop flight log or click to browse</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
         ArduPilot .BIN · MAVLink .TLOG · PX4 .ULG · DJI .TXT/.CSV · GPX · KML · Betaflight .BBL · Skyline .SKYLOG
       </div>
       {status && (
-        <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 10, padding: '10px 16px', marginTop: 12 }}>
-          <div style={{ fontSize: 12, color: '#94A3B8', marginBottom: 8 }}>{status.msg}</div>
+        <div style={{ background: 'var(--border-subtle)', borderRadius: 10, padding: '10px 16px', marginTop: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8 }}>{status.msg}</div>
           {progress !== null && (
-            <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+            <div style={{ background: 'var(--border-tooltip)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
               <div style={{ background: '#3B82F6', height: '100%', width: `${progress}%`, transition: 'width 0.5s ease', borderRadius: 4 }} />
             </div>
           )}
@@ -494,14 +496,14 @@ const FlightList = ({ onSelect, refresh }) => {
       .catch(() => setLoading(false));
   }, [token, refresh]);
 
-  const fmtColors = { ardupilot_bin: '#10B981', mavlink_tlog: '#3B82F6', px4_ulog: '#8B5CF6', dji_txt: '#F59E0B', dji_csv: '#F97316', skyline_skylog: '#A78BFA', betaflight_bbl: '#EC4899', generic_csv: '#64748B' };
+  const fmtColors = { ardupilot_bin: '#10B981', mavlink_tlog: '#3B82F6', px4_ulog: '#8B5CF6', dji_txt: '#F59E0B', dji_csv: '#F97316', skyline_skylog: '#A78BFA', betaflight_bbl: '#EC4899', generic_csv: 'var(--text-muted)' };
 
   if (loading) return <div style={emptyStyle}>Loading flights…</div>;
   if (!flights.length) return (
-    <div style={{ textAlign: 'center', padding: '32px 20px', color: '#475569' }}>
+    <div style={{ textAlign: 'center', padding: '32px 20px', color: 'var(--text-faint)' }}>
       <Plane size={32} style={{ margin: '0 auto 12px', display: 'block', opacity: 0.3 }} />
-      <div style={{ fontSize: 14, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>No flights yet</div>
-      <div style={{ fontSize: 12, color: '#475569' }}>Import a log file to get started</div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>No flights yet</div>
+      <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>Import a log file to get started</div>
     </div>
   );
 
@@ -509,23 +511,23 @@ const FlightList = ({ onSelect, refresh }) => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {flights.map(f => (
         <div key={f.id} onClick={() => onSelect(f)}
-          style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 14px', cursor: 'pointer', transition: 'border-color 0.15s' }}
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', cursor: 'pointer', transition: 'border-color 0.15s' }}
           onMouseEnter={e => e.currentTarget.style.borderColor = '#3B82F650'}
-          onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'}>
+          onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <Plane size={13} color={fmtColors[f.log_format] || '#64748B'} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#CBD5E1', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.original_filename}</span>
+            <Plane size={13} color={fmtColors[f.log_format] || 'var(--text-muted)'} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.original_filename}</span>
             {f.warning_count > 0 && <span style={{ fontSize: 10, background: '#F59E0B20', color: '#F59E0B', padding: '2px 7px', borderRadius: 10, fontWeight: 600 }}>{f.warning_count}⚠</span>}
             {f.parse_status !== 'complete' && <span style={{ fontSize: 10, background: '#3B82F620', color: '#3B82F6', padding: '2px 7px', borderRadius: 10 }}>{f.parse_status}</span>}
           </div>
-          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#475569' }}>
+          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-faint)' }}>
             <span>{f.flight_date?.slice(0, 10) || '—'}</span>
             <span title={f.idle_before_sec > 0 ? `+${formatDuration(f.idle_before_sec)} idle` : undefined}>
               {formatDuration(f.flight_duration_sec || f.duration_sec)}
-              {f.idle_before_sec > 0 && <span style={{ color: '#475569', fontSize: 10, marginLeft: 3 }}>+{formatDuration(f.idle_before_sec)} idle</span>}
+              {f.idle_before_sec > 0 && <span style={{ color: 'var(--text-faint)', fontSize: 10, marginLeft: 3 }}>+{formatDuration(f.idle_before_sec)} idle</span>}
             </span>
             <span>{f.max_altitude_m ? `${parseFloat(f.max_altitude_m).toFixed(0)}m` : '—'}</span>
-            <span style={{ color: fmtColors[f.log_format] || '#64748B', fontWeight: 600, marginLeft: 'auto' }}>{(f.log_format || '?').replace(/_/g, ' ').toUpperCase()}</span>
+            <span style={{ color: fmtColors[f.log_format] || 'var(--text-muted)', fontWeight: 600, marginLeft: 'auto' }}>{(f.log_format || '?').replace(/_/g, ' ').toUpperCase()}</span>
           </div>
         </div>
       ))}
@@ -561,22 +563,22 @@ const AuthScreen = () => {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: '#060D1A', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ width: 380, background: '#0A1628', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 32 }}>
+    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-app)', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 380, background: 'var(--bg-panel)', border: '1px solid var(--border-input)', borderRadius: 16, padding: 32 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }}>
           <div style={{ width: 36, height: 36, background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Plane size={20} color="white" />
           </div>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#F1F5F9' }}>UAVLogBook</div>
-            <div style={{ fontSize: 11, color: '#475569' }}>Flight Analysis Platform</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-bright)' }}>UAVLogBook</div>
+            <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>Flight Analysis Platform</div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: '#0F172A', borderRadius: 10, padding: 4 }}>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: 'var(--bg-card)', borderRadius: 10, padding: 4 }}>
           {['login','register'].map(m => (
             <button key={m} onClick={() => { setMode(m); setError(''); }}
               style={{ flex: 1, padding: '7px 0', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                background: mode === m ? '#3B82F6' : 'transparent', color: mode === m ? 'white' : '#64748B' }}>
+                background: mode === m ? '#3B82F6' : 'transparent', color: mode === m ? 'white' : 'var(--text-muted)' }}>
               {m === 'login' ? 'Sign In' : 'Register'}
             </button>
           ))}
@@ -584,12 +586,12 @@ const AuthScreen = () => {
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {mode === 'register' && (
             <input value={name} onChange={e => setName(e.target.value)} placeholder="Display name" required
-              style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px 12px', color: '#E2E8F0', fontSize: 13, outline: 'none' }} />
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-tooltip)', borderRadius: 8, padding: '10px 12px', color: 'var(--text-primary)', fontSize: 13, outline: 'none' }} />
           )}
           <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" required
-            style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px 12px', color: '#E2E8F0', fontSize: 13, outline: 'none' }} />
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border-tooltip)', borderRadius: 8, padding: '10px 12px', color: 'var(--text-primary)', fontSize: 13, outline: 'none' }} />
           <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" required
-            style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px 12px', color: '#E2E8F0', fontSize: 13, outline: 'none' }} />
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border-tooltip)', borderRadius: 8, padding: '10px 12px', color: 'var(--text-primary)', fontSize: 13, outline: 'none' }} />
           {error && <div style={{ fontSize: 12, color: '#EF4444', background: '#EF444415', borderRadius: 8, padding: '8px 12px' }}>{error}</div>}
           <button type="submit" disabled={loading}
             style={{ background: '#3B82F6', border: 'none', color: 'white', padding: '11px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700, opacity: loading ? 0.6 : 1 }}>
@@ -604,6 +606,7 @@ const AuthScreen = () => {
 // ── Main App ──────────────────────────────────────────────────
 export default function App() {
   const { isAuthenticated, user, logout, token } = useAuthStore();
+  const { theme, setTheme } = useUIStore();
   const [modules, setModules] = useState(defaultModules);
   const [selectedFlight, setSelectedFlight] = useState(null);
   const [flightData, setFlightData] = useState(null);
@@ -616,6 +619,8 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
 
   const enabledModules = modules.filter(m => m.enabled).sort((a, b) => modules.indexOf(a) - modules.indexOf(b));
+
+  useEffect(() => { applyTheme(theme); }, [theme]);
 
   // Load dashboard stats
   useEffect(() => {
@@ -667,21 +672,21 @@ export default function App() {
   const monthly = (dashStats?.monthly || []).map(m => ({ m: m.m?.slice(0, 7), n: Number(m.cnt) })).reverse();
   const byFormat = dashStats?.byFormat || [];
   const totalFmtCount = byFormat.reduce((s, f) => s + Number(f.cnt), 0) || 1;
-  const fmtColors2 = { ardupilot_bin: '#10B981', mavlink_tlog: '#3B82F6', px4_ulog: '#8B5CF6', dji_txt: '#F59E0B', dji_csv: '#F97316', skyline_skylog: '#A78BFA', betaflight_bbl: '#EC4899', generic_csv: '#64748B' };
+  const fmtColors2 = { ardupilot_bin: '#10B981', mavlink_tlog: '#3B82F6', px4_ulog: '#8B5CF6', dji_txt: '#F59E0B', dji_csv: '#F97316', skyline_skylog: '#A78BFA', betaflight_bbl: '#EC4899', generic_csv: 'var(--text-muted)' };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: '#060D1A', color: '#E2E8F0', fontFamily: "'Inter', system-ui, sans-serif", overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-app)', color: 'var(--text-primary)', fontFamily: "'Inter', system-ui, sans-serif", overflow: 'hidden' }}>
 
       {/* Sidebar */}
-      <div style={{ width: sidebarOpen ? 260 : 0, minWidth: sidebarOpen ? 260 : 0, background: '#0A1628', borderRight: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', transition: 'width 0.25s ease, min-width 0.25s ease', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ width: sidebarOpen ? 260 : 0, minWidth: sidebarOpen ? 260 : 0, background: 'var(--bg-panel)', borderRight: '1px solid var(--border-panel)', overflow: 'hidden', transition: 'width 0.25s ease, min-width 0.25s ease', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Plane size={18} color="white" />
             </div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: '#F1F5F9', letterSpacing: '-0.02em' }}>UAVLogBook</div>
-              <div style={{ fontSize: 10, color: '#475569' }}>Flight Analysis Platform</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-bright)', letterSpacing: '-0.02em' }}>UAVLogBook</div>
+              <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>Flight Analysis Platform</div>
             </div>
           </div>
         </div>
@@ -692,7 +697,7 @@ export default function App() {
             { key: 'settings',  icon: Settings,label: 'Settings' },
           ].map(item => (
             <button key={item.key} onClick={() => setView(item.key)}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, background: view === item.key ? 'rgba(59,130,246,0.15)' : 'none', border: view === item.key ? '1px solid rgba(59,130,246,0.2)' : '1px solid transparent', color: view === item.key ? '#60A5FA' : '#64748B', cursor: 'pointer', width: '100%', textAlign: 'left', fontSize: 13, fontWeight: 500, transition: 'all 0.15s' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, background: view === item.key ? 'rgba(59,130,246,0.15)' : 'none', border: view === item.key ? '1px solid rgba(59,130,246,0.2)' : '1px solid transparent', color: view === item.key ? '#60A5FA' : 'var(--text-muted)', cursor: 'pointer', width: '100%', textAlign: 'left', fontSize: 13, fontWeight: 500, transition: 'all 0.15s' }}>
               <item.icon size={15} />
               {item.label}
             </button>
@@ -701,15 +706,15 @@ export default function App() {
         <div style={{ padding: '0 10px 12px' }}>
           <ModuleTogglePanel modules={modules} onToggle={toggleModule} />
         </div>
-        <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>
             {(user?.display_name || 'P')[0].toUpperCase()}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#CBD5E1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.display_name || 'Pilot'}</div>
-            <div style={{ fontSize: 10, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.display_name || 'Pilot'}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email}</div>
           </div>
-          <button onClick={logout} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: 4 }} title="Logout"><LogOut size={14} /></button>
+          <button onClick={logout} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', padding: 4 }} title="Logout"><LogOut size={14} /></button>
         </div>
       </div>
 
@@ -717,22 +722,22 @@ export default function App() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {/* Topbar */}
-        <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', gap: 12, background: '#0A1628' }}>
-          <button onClick={() => setSidebarOpen(s => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 4 }}>
+        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--bg-panel)' }}>
+          <button onClick={() => setSidebarOpen(s => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}>
             <Menu size={18} />
           </button>
           {view === 'flight' && selectedFlight && (
             <>
-              <button onClick={() => setView('dashboard')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+              <button onClick={() => setView('dashboard')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
                 <ArrowLeft size={14} />
               </button>
-              <span style={{ fontSize: 14, fontWeight: 600, color: '#CBD5E1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFlight.original_filename}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFlight.original_filename}</span>
               <span style={{ fontSize: 11, color: '#F59E0B', background: '#F59E0B15', padding: '2px 8px', borderRadius: 10, fontWeight: 600, flexShrink: 0 }}>{selectedFlight.log_format?.replace(/_/g,' ').toUpperCase()}</span>
             </>
           )}
           {view === 'dashboard' && (
             <>
-              <span style={{ fontSize: 14, fontWeight: 600, color: '#CBD5E1' }}>Dashboard</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>Dashboard</span>
               <div style={{ flex: 1 }} />
               <div style={{ display: 'flex', gap: 8 }}>
                 {[
@@ -759,19 +764,19 @@ export default function App() {
                 { label: 'Formats',       value: byFormat.length || '—',  icon: Layers,    color: '#8B5CF6' },
                 { label: 'Distance',      value: totals.total_dist ? `${(parseFloat(totals.total_dist)/1000).toFixed(0)}km` : '—', icon: Globe, color: '#F59E0B' },
               ].map((c, i) => (
-                <div key={i} style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
+                <div key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <span style={{ fontSize: 11, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{c.label}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{c.label}</span>
                     <c.icon size={16} color={c.color} />
                   </div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: '#F1F5F9', fontFamily: "'JetBrains Mono', monospace" }}>{c.value}</div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-bright)', fontFamily: "'JetBrains Mono', monospace" }}>{c.value}</div>
                 </div>
               ))}
 
               {/* Flight list */}
-              <div style={{ gridColumn: '1 / -1', background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
+              <div style={{ gridColumn: '1 / -1', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                  <h2 style={{ fontSize: 14, fontWeight: 700, color: '#CBD5E1', margin: 0 }}>Recent Flights</h2>
+                  <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', margin: 0 }}>Recent Flights</h2>
                   <div style={{ flex: 1 }} />
                   <button onClick={() => setView('upload')} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#3B82F6', border: 'none', color: 'white', padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                     <Upload size={13} /> Import Log
@@ -782,13 +787,13 @@ export default function App() {
 
               {/* Monthly chart */}
               {monthly.length > 0 && (
-                <div style={{ gridColumn: '1 / span 2', background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
-                  <h3 style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8', marginBottom: 12 }}>Flights per Month</h3>
+                <div style={{ gridColumn: '1 / span 2', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', marginBottom: 12 }}>Flights per Month</h3>
                   <ResponsiveContainer width="100%" height={140}>
                     <BarChart data={monthly}>
-                      <XAxis dataKey="m" tick={{ fill: '#64748B', fontSize: 11 }} />
-                      <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
-                      <Tooltip contentStyle={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }} />
+                      <XAxis dataKey="m" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
+                      <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
+                      <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-tooltip)', borderRadius: 8 }} />
                       <Bar dataKey="n" fill="#3B82F6" opacity={0.8} radius={[4,4,0,0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -797,19 +802,19 @@ export default function App() {
 
               {/* Format breakdown */}
               {byFormat.length > 0 && (
-                <div style={{ gridColumn: monthly.length > 0 ? 'span 2' : '1 / -1', background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
-                  <h3 style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8', marginBottom: 12 }}>Log Formats</h3>
+                <div style={{ gridColumn: monthly.length > 0 ? 'span 2' : '1 / -1', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', marginBottom: 12 }}>Log Formats</h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {byFormat.map((f, i) => {
                       const pct = Math.round((Number(f.cnt) / totalFmtCount) * 100);
-                      const color = fmtColors2[f.log_format] || '#64748B';
+                      const color = fmtColors2[f.log_format] || 'var(--text-muted)';
                       return (
                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
-                          <span style={{ width: 120, color: '#94A3B8', flexShrink: 0 }}>{(f.log_format || '?').replace(/_/g,' ')}</span>
-                          <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                          <span style={{ width: 120, color: 'var(--text-tertiary)', flexShrink: 0 }}>{(f.log_format || '?').replace(/_/g,' ')}</span>
+                          <div style={{ flex: 1, background: 'var(--border-subtle)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
                             <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 4 }} />
                           </div>
-                          <span style={{ width: 32, color: '#64748B', textAlign: 'right' }}>{f.cnt}</span>
+                          <span style={{ width: 32, color: 'var(--text-muted)', textAlign: 'right' }}>{f.cnt}</span>
                         </div>
                       );
                     })}
@@ -822,9 +827,9 @@ export default function App() {
           {/* FLIGHT ANALYSIS VIEW */}
           {view === 'flight' && selectedFlight && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
                 <div>
-                  <div style={{ fontSize: 11, color: '#64748B' }}>Format</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Format</div>
                   <div style={{ fontSize: 13, color: '#F59E0B', fontWeight: 700 }}>{selectedFlight.log_format?.replace(/_/g,' ').toUpperCase()}</div>
                 </div>
                 {[
@@ -836,8 +841,8 @@ export default function App() {
                   { label: 'Warnings', value: selectedFlight.warning_count ?? 0, color: selectedFlight.warning_count > 0 ? '#F59E0B' : '#10B981' },
                 ].map((s, i) => (
                   <div key={i}>
-                    <div style={{ fontSize: 11, color: '#64748B' }}>{s.label}</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: s.color || '#CBD5E1' }}>{s.value}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: s.color || 'var(--text-secondary)' }}>{s.value}</div>
                   </div>
                 ))}
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
@@ -846,7 +851,7 @@ export default function App() {
               </div>
 
               {flightLoading && (
-                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#475569' }}>
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-faint)' }}>
                   <RefreshCw size={24} style={{ margin: '0 auto 12px', display: 'block', animation: 'spin 1s linear infinite' }} />
                   <div>Loading telemetry…</div>
                 </div>
@@ -858,7 +863,7 @@ export default function App() {
               ))}
 
               {!flightLoading && !enabledModules.length && (
-                <div style={{ textAlign: 'center', padding: '60px 20px', color: '#475569' }}>
+                <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-faint)' }}>
                   <EyeOff size={40} style={{ margin: '0 auto 12px' }} />
                   <div>All modules hidden. Enable modules in the sidebar.</div>
                 </div>
@@ -869,11 +874,11 @@ export default function App() {
           {/* UPLOAD VIEW */}
           {view === 'upload' && (
             <div style={{ maxWidth: 600, margin: '0 auto' }}>
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: '#E2E8F0', marginBottom: 6 }}>Import Flight Log</h2>
-              <p style={{ fontSize: 13, color: '#64748B', marginBottom: 20 }}>AI automatically detects the log format and maps all fields — no manual configuration needed.</p>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>Import Flight Log</h2>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>AI automatically detects the log format and maps all fields — no manual configuration needed.</p>
               <UploadZone onUpload={() => { setUploadRefresh(r => r + 1); setTimeout(() => setView('dashboard'), 1200); }} />
-              <div style={{ marginTop: 24, background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 18 }}>
-                <h3 style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8', marginBottom: 12 }}>Supported Formats</h3>
+              <div style={{ marginTop: 24, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 18 }}>
+                <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', marginBottom: 12 }}>Supported Formats</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   {[
                     { name: 'ArduPilot DataFlash', ext: '.BIN',    color: '#10B981', detail: 'Self-describing binary, FMT messages' },
@@ -884,14 +889,14 @@ export default function App() {
                     { name: 'DJI/Litchi CSV',      ext: '.CSV',    color: '#F97316', detail: 'DJI GO, Litchi, Map Pilot' },
                     { name: 'Betaflight Blackbox', ext: '.BBL',    color: '#EC4899', detail: 'Betaflight / INAV blackbox' },
                     { name: 'GPX Track',           ext: '.GPX',    color: '#06B6D4', detail: 'GPS Exchange Format XML' },
-                    { name: 'Generic CSV',         ext: '.CSV',    color: '#64748B', detail: 'Any CSV — AI maps columns' },
+                    { name: 'Generic CSV',         ext: '.CSV',    color: 'var(--text-muted)', detail: 'Any CSV — AI maps columns' },
                   ].map((f, i) => (
                     <div key={i} style={{ padding: '10px 12px', background: `${f.color}0D`, border: `1px solid ${f.color}25`, borderRadius: 8 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: f.color, fontFamily: 'monospace' }}>{f.ext}</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#CBD5E1' }}>{f.name}</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>{f.name}</span>
                       </div>
-                      <div style={{ fontSize: 11, color: '#475569' }}>{f.detail}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{f.detail}</div>
                     </div>
                   ))}
                 </div>
@@ -901,13 +906,35 @@ export default function App() {
 
           {/* SETTINGS */}
           {view === 'settings' && (
-            <div style={{ maxWidth: 500 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, color: '#E2E8F0' }}>Settings</h2>
-              <div style={{ background: '#0F172A', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#94A3B8', marginBottom: 4 }}>Signed in as</div>
-                <div style={{ fontSize: 15, color: '#E2E8F0', fontWeight: 700 }}>{user?.display_name}</div>
-                <div style={{ fontSize: 12, color: '#475569' }}>{user?.email}</div>
+            <div style={{ maxWidth: 540 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, color: 'var(--text-primary)' }}>Settings</h2>
+
+              {/* Account card */}
+              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-tertiary)', marginBottom: 4 }}>Signed in as</div>
+                <div style={{ fontSize: 15, color: 'var(--text-primary)', fontWeight: 700 }}>{user?.display_name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>{user?.email}</div>
               </div>
+
+              {/* Theme picker */}
+              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-tertiary)', marginBottom: 14 }}>Theme</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                  {Object.entries(themes).map(([key, t]) => (
+                    <button key={key} onClick={() => setTheme(key)}
+                      style={{ background: theme === key ? 'var(--accent-bg)' : 'var(--bg-input)', border: `2px solid ${theme === key ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10, padding: '12px 14px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s' }}>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                        {t.preview.map((c, i) => (
+                          <div key={i} style={{ width: 22, height: 22, background: c, borderRadius: 5, border: '1px solid rgba(255,255,255,0.15)' }} />
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: theme === key ? 'var(--accent)' : 'var(--text-primary)', marginBottom: 2 }}>{t.label}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{t.description}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <button onClick={logout} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#EF444415', border: '1px solid #EF444430', color: '#EF4444', padding: '10px 20px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
                 <LogOut size={14} /> Sign Out
               </button>
@@ -929,5 +956,5 @@ function formatDuration(sec) {
   return `${m}m ${s}s`;
 }
 
-const emptyStyle = { padding: '24px 0', textAlign: 'center', fontSize: 12, color: '#475569' };
-const btnSmallStyle = { display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#94A3B8', padding: '5px 10px', borderRadius: 7, cursor: 'pointer', fontSize: 12 };
+const emptyStyle = { padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--text-faint)' };
+const btnSmallStyle = { display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--border-panel)', border: '1px solid var(--border-tooltip)', color: 'var(--text-tertiary)', padding: '5px 10px', borderRadius: 7, cursor: 'pointer', fontSize: 12 };

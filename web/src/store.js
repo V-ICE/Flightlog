@@ -88,16 +88,21 @@ export const useFlightStore = create((set, get) => ({
 }));
 
 // ── UI Store ─────────────────────────────────────────────────
-export const useUIStore = create((set) => ({
-  sidebarOpen: true,
-  theme: 'dark',
-  mapStyle: 'satellite',   // 'satellite' | 'terrain' | 'streets'
-  playheadMs: null,        // current time position for synchronized views
-  isPlaying: false,
+export const useUIStore = create(
+  persist(
+    (set) => ({
+      sidebarOpen: true,
+      theme: 'dark',
+      mapStyle: 'satellite',
+      playheadMs: null,
+      isPlaying: false,
 
-  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
-  setTheme: (theme) => set({ theme }),
-  setMapStyle: (mapStyle) => set({ mapStyle }),
-  setPlayhead: (playheadMs) => set({ playheadMs }),
-  setPlaying: (isPlaying) => set({ isPlaying }),
-}));
+      toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+      setTheme: (theme) => set({ theme }),
+      setMapStyle: (mapStyle) => set({ mapStyle }),
+      setPlayhead: (playheadMs) => set({ playheadMs }),
+      setPlaying: (isPlaying) => set({ isPlaying }),
+    }),
+    { name: 'uavlogbook-ui', partialize: (s) => ({ theme: s.theme }) }
+  )
+);
