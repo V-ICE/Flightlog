@@ -88,8 +88,15 @@ rebuild-web:
 	docker compose stop builder
 	docker volume rm uavlogbook_web_dist 2>/dev/null || true
 	docker compose up builder
-	docker compose restart app
+	docker compose up -d --force-recreate app
 	@echo "Web app rebuilt."
+
+# ── Quick rebuild (keeps existing dist volume) ─────────────
+rebuild-web-quick:
+	@echo "Rebuilding React (quick — keeping dist volume)..."
+	docker compose run --rm builder sh -c 'cd /build && rm -rf dist && node node_modules/vite/bin/vite.js build'
+	docker compose up -d --force-recreate app
+	@echo "Done."
 
 # ── Rebuild PHP container ─────────────────────────────────
 rebuild-app:
