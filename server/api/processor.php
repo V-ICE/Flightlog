@@ -41,7 +41,7 @@ class FlightProcessor {
             $this->storeTelemetry($flightId, $gps, $att, $batt, $imu, $rc, $events);
 
             // Step 5: Compute flight summary stats
-            $stats = $this->computeStats($gps, $batt, $events);
+            $stats = $this->computeStats($gps, $batt, $events, $originalName);
 
             // Step 6: AI anomaly detection
             $aiResult = AIImportEngine::analyzeFlightAnomalies($stats, $events);
@@ -115,7 +115,7 @@ class FlightProcessor {
         if ($events) DB::batchInsert('flight_events',       $addId($events));
     }
 
-    private function computeStats(array $gps, array $batt, array $events): array {
+    private function computeStats(array $gps, array $batt, array $events, string $originalName = ''): array {
         $maxAlt = 0; $maxSpd = 0; $maxDist = 0; $totalDist = 0;
         $homeLat = null; $homeLng = null;
         $minLat = 999; $maxLat = -999; $minLng = 999; $maxLng = -999;
@@ -160,7 +160,7 @@ class FlightProcessor {
             : 0;
 
         return [
-            'flight_date'      => $flightDate ?? date('Y-m-d H:i:s'),
+            'flight_date'      => $flightDate ?? $this->parseDateFromFilename($originalName) ?? date('Y-m-d H:i:s', time()),
             'duration_sec'     => $totalDurationSec,
             'flight_duration_sec' => $flightDurationSec,
             'idle_before_sec'  => $idleBeforeSec,
@@ -237,6 +237,39 @@ class FlightProcessor {
             $result[] = $data[(int)round($i * $step)];
         }
         return $result;
+    }
+
+    // Extract flight date from common log filename patterns
+    private function parseDateFromFilename(string $name): ?string {
+        // Skyline:   log-20260525-112946.skylog   → 2026-05-25 11:29:46
+        // DJI GO:    DJI_20260525_112946_001.mp4
+        // RunCam:    RC_2026-05-25_11-29-00.mp4
+        // GoPro:     GH010123_20260525_112946.mp4
+        // ArduPilot: 2026-05-25_11-29-46.bin
+        // Generic:   2026-05-25 11:29:46 anywhere
+        $patterns = [
+            // YYYYMMDD-HHMMSS  (Skyline, DJI, GoPro)
+            '/(\d{4})(\d{2})(\d{2})[-_T](\d{2})(\d{2})(\d{2})/',
+            // YYYY-MM-DD_HH-MM-SS  (ArduPilot text, RunCam)
+            '/(\d{4})-(\d{2})-(\d{2})[_T ](\d{2})-(\d{2})-(\d{2})/',
+            // YYYY-MM-DD HH:MM:SS
+            '/(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/',
+            // YYYYMMDD only (fallback, no time)
+            '/(\d{4})(\d{2})(\d{2})/',
+        ];
+        foreach ($patterns as $i => $pattern) {
+            if (preg_match($pattern, $name, $m)) {
+                if ($i === 3) {
+                    // Date only
+                    return "{$m[1]}-{$m[2]}-{$m[3]} 00:00:00";
+                }
+                // Validate ranges
+                if ((int)$m[2] < 1 || (int)$m[2] > 12) continue;
+                if ((int)$m[3] < 1 || (int)$m[3] > 31) continue;
+                return "{$m[1]}-{$m[2]}-{$m[3]} {$m[4]}:{$m[5]}:{$m[6]}";
+            }
+        }
+        return null;
     }
 
     private function haversine(float $lat1, float $lng1, float $lat2, float $lng2): float {
