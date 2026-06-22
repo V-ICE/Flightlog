@@ -15,7 +15,8 @@ import {
   AlertTriangle, AlertCircle, Info, CheckCircle, Home,
   Share2, Trash2, Edit3, RefreshCw, Download, Search, Filter,
   ArrowLeft, Maximize2, GripVertical, Zap, Rotate3d,
-  TrendingUp, Globe, Layers, Video
+  TrendingUp, Globe, Layers, Video,
+  Camera, Wrench, ChevronLeft, ImageOff
 } from "lucide-react";
 import { VideoSyncModule } from "./VideoSync.jsx";
 import { useUIStore } from './store.js';
@@ -37,7 +38,27 @@ const defaultModules = [
   { key: 'events',      label: 'Event Timeline',   enabled: true,  icon: Clock,        color: '#F97316' },
   { key: 'stats',       label: 'Statistics',       enabled: true,  icon: BarChart3,    color: '#A78BFA' },
   { key: 'video_sync',  label: 'FPV Video',        enabled: true,  icon: Video,        color: '#A78BFA' },
+  { key: 'photos',      label: 'Recon Photos',     enabled: true,  icon: Camera,       color: '#F97316' },
 ];
+
+// ── Aircraft type definitions ─────────────────────────────────
+const AIRCRAFT_TYPES = {
+  fixed_wing: { label: 'Fixed Wing',         emoji: '✈',  specs: ['wingspan_mm','length_mm','auw_g','max_speed_kmh','endurance_min','range_km','motor_count'] },
+  fpv:        { label: 'FPV / Racing',        emoji: '🏎',  specs: ['frame_size_mm','motor_count','battery_cells','battery_mah','auw_g'] },
+  recon:      { label: 'Recon / Mapping',     emoji: '📷', specs: ['wingspan_mm','length_mm','auw_g','endurance_min','range_km','max_speed_kmh'] },
+  strike:     { label: 'Strike / Loitering',  emoji: '🎯', specs: ['auw_g','max_speed_kmh','range_km','endurance_min'] },
+  multirotor: { label: 'Multirotor',          emoji: '🚁', specs: ['frame_size_mm','motor_count','battery_cells','battery_mah','auw_g','endurance_min'] },
+  vtol:       { label: 'VTOL',                emoji: '🛫', specs: ['wingspan_mm','auw_g','endurance_min','range_km'] },
+  helicopter: { label: 'Helicopter',          emoji: '🚁', specs: ['auw_g','endurance_min'] },
+  other:      { label: 'Other',               emoji: '✈',  specs: ['auw_g','endurance_min'] },
+};
+const SPEC_LABELS = {
+  auw_g: 'Weight (g)', wingspan_mm: 'Wingspan (mm)', length_mm: 'Length (mm)',
+  frame_size_mm: 'Frame (mm)', motor_count: 'Motors', battery_cells: 'Battery Cells',
+  battery_mah: 'Battery (mAh)', endurance_min: 'Endurance (min)', max_speed_kmh: 'Max Speed (km/h)',
+  range_km: 'Range (km)',
+};
+const MAINT_TYPES = { repair:'Repair', inspection:'Inspection', part_swap:'Part Swap', crash:'Crash', upgrade:'Upgrade', other:'Other' };
 
 // ── Sample flight data for demo ──────────────────────────────
 const generateFlightData = () => {
@@ -283,26 +304,30 @@ const FitBounds = ({ positions, homeOnly }) => {
   return null;
 };
 
+// Resizes Leaflet's container directly and invalidates its size
+const InvalidateOnFullscreen = ({ fullscreen }) => {
+  const map = useMap();
+  useEffect(() => {
+    const container = map.getContainer();
+    container.style.height = fullscreen ? '100vh' : '340px';
+    map.invalidateSize(false);
+    // Second pass after paint to catch any remaining mis-measurement
+    const raf = requestAnimationFrame(() => map.invalidateSize(false));
+    return () => cancelAnimationFrame(raf);
+  }, [fullscreen]);
+  return null;
+};
+
 // ── Module: Flight Map ────────────────────────────────────────
 const MapModule = ({ data, flightData }) => {
   const [manualHome, setManualHome] = useState(null);
   const [tileStyle, setTileStyle] = useState('Satellite');
   const [fullscreen, setFullscreen] = useState(false);
   const mapWrapRef = useRef(null);
-
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      mapWrapRef.current?.requestFullscreen();
-      setFullscreen(true);
-    } else {
-      document.exitFullscreen();
-      setFullscreen(false);
-    }
-  };
   useEffect(() => {
-    const onExit = () => { if (!document.fullscreenElement) setFullscreen(false); };
-    document.addEventListener('fullscreenchange', onExit);
-    return () => document.removeEventListener('fullscreenchange', onExit);
+    const onKey = (e) => { if (e.key === 'Escape') setFullscreen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, []);
   const rawGps = data?.gps || [];
   const gps = rawGps.filter(p => p.lat != null && p.lng != null && !isNaN(p.lat) && !isNaN(p.lng));
@@ -330,7 +355,7 @@ const MapModule = ({ data, flightData }) => {
   const tile = TILE_LAYERS[tileStyle];
 
   return (
-    <div ref={mapWrapRef} style={{ position: 'relative', borderRadius: fullscreen ? 0 : 10, overflow: 'hidden', background: '#0D1B2A' }}>
+    <div ref={mapWrapRef} style={fullscreen ? { position: 'fixed', inset: 0, zIndex: 2000, background: '#0D1B2A' } : { position: 'relative', borderRadius: 10, overflow: 'hidden', background: '#0D1B2A' }}>
       {/* Style switcher */}
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1000, display: 'flex', gap: 5 }}>
         {Object.keys(TILE_LAYERS).map(s => (
@@ -349,14 +374,14 @@ const MapModule = ({ data, flightData }) => {
             <Edit3 size={11} /> Change Home
           </button>
         )}
-        <button onClick={toggleFullscreen} title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        <button onClick={() => setFullscreen(f => !f)} title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           style={{ ...btnSmallStyle, background: 'rgba(10,10,20,0.85)', backdropFilter: 'blur(4px)', padding: '5px 8px' }}>
           <Maximize2 size={13} />
         </button>
       </div>
 
       <MapContainer
-        style={{ height: fullscreen ? '100vh' : 340, width: '100%' }}
+        style={{ height: fullscreen ? '100vh' : 340, width: '100%', zIndex: 1 }}
         center={positions[0]}
         zoom={14}
         zoomControl={true}
@@ -365,6 +390,7 @@ const MapModule = ({ data, flightData }) => {
       >
         <TileLayer key={tileStyle} url={tile.url} attribution={tile.attribution} maxZoom={tile.maxZoom} />
         <FitBounds positions={positions} homeOnly={homeOnly} />
+        <InvalidateOnFullscreen fullscreen={fullscreen} />
 
         {/* Flight path — altitude-colored segments */}
         {!homeOnly && segments.map((seg, i) => (
@@ -403,6 +429,112 @@ const MapModule = ({ data, flightData }) => {
           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>0m</span>
           <div style={{ width: 60, height: 7, borderRadius: 3, background: 'linear-gradient(to right, hsl(120,85%,55%), hsl(0,85%,55%))' }} />
           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{maxAlt.toFixed(0)}m</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Module: Recon Photos ──────────────────────────────────────
+const PhotoGalleryModule = ({ flightData }) => {
+  const { token } = useAuthStore();
+  const [photos, setPhotos]     = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+  const fileRef = useRef();
+
+  const load = useCallback(async () => {
+    if (!flightData?.id) return;
+    try {
+      const r = await fetch(`/api/v1/photos/${flightData.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      setPhotos(await r.json());
+    } catch { } finally { setLoading(false); }
+  }, [flightData?.id, token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleFiles = async (files) => {
+    if (!files?.length) return;
+    setUploading(true);
+    const fd = new FormData();
+    for (const f of files) fd.append('photos[]', f);
+    try {
+      await fetch(`/api/v1/photos/${flightData.id}`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      });
+      await load();
+    } catch { } finally { setUploading(false); }
+  };
+
+  const del = async (id) => {
+    if (!confirm('Delete this photo?')) return;
+    await fetch(`/api/v1/photos/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    setPhotos(p => p.filter(ph => ph.id !== id));
+    if (lightbox?.id === id) setLightbox(null);
+  };
+
+  if (loading) return <div style={emptyStyle}>Loading photos…</div>;
+
+  return (
+    <div>
+      {/* Upload bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{photos.length} photo{photos.length !== 1 ? 's' : ''}</span>
+        <div style={{ flex: 1 }} />
+        <input ref={fileRef} type="file" multiple accept="image/*" style={{ display: 'none' }}
+          onChange={e => handleFiles(Array.from(e.target.files))} />
+        <button onClick={() => fileRef.current?.click()} disabled={uploading}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--accent)', border: 'none', color: '#fff', padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: uploading ? 0.6 : 1 }}>
+          <Camera size={13} />{uploading ? 'Uploading…' : 'Add Photos'}
+        </button>
+      </div>
+
+      {/* Drop zone when empty */}
+      {!photos.length && (
+        <div onDragOver={e => e.preventDefault()}
+          onDrop={e => { e.preventDefault(); handleFiles(Array.from(e.dataTransfer.files)); }}
+          onClick={() => fileRef.current?.click()}
+          style={{ border: '2px dashed var(--border-input)', borderRadius: 12, padding: '40px 20px', textAlign: 'center', cursor: 'pointer', color: 'var(--text-faint)' }}>
+          <ImageOff size={32} style={{ margin: '0 auto 10px', opacity: 0.5 }} />
+          <div style={{ fontSize: 13 }}>No photos yet — drag &amp; drop or click Add Photos</div>
+        </div>
+      )}
+
+      {/* Grid */}
+      {photos.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px,1fr))', gap: 8 }}
+          onDragOver={e => e.preventDefault()}
+          onDrop={e => { e.preventDefault(); handleFiles(Array.from(e.dataTransfer.files)); }}>
+          {photos.map(ph => (
+            <div key={ph.id} style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-input)', cursor: 'pointer', aspectRatio: '4/3' }}
+              onClick={() => setLightbox(ph)}>
+              <img src={ph.web_path} alt={ph.caption || ph.original_filename}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                loading="lazy" />
+              <button onClick={e => { e.stopPropagation(); del(ph.id); }}
+                style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.7)', border: 'none', color: '#fff', borderRadius: 4, padding: '2px 5px', cursor: 'pointer', fontSize: 10, opacity: 0.7 }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 3000, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setLightbox(null)}>
+          <button onClick={() => { const i = photos.indexOf(lightbox); setLightbox(photos[Math.max(0,i-1)]); }}
+            style={{ position: 'absolute', left: 20, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontSize: 28, cursor: 'pointer', borderRadius: 6, padding: '8px 12px' }}>‹</button>
+          <img src={lightbox.web_path} alt={lightbox.caption || ''}
+            style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: 8 }}
+            onClick={e => e.stopPropagation()} />
+          <button onClick={() => { const i = photos.indexOf(lightbox); setLightbox(photos[Math.min(photos.length-1,i+1)]); }}
+            style={{ position: 'absolute', right: 20, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontSize: 28, cursor: 'pointer', borderRadius: 6, padding: '8px 12px' }}>›</button>
+          <button onClick={() => setLightbox(null)}
+            style={{ position: 'absolute', top: 20, right: 20, background: 'none', border: 'none', color: '#fff', fontSize: 24, cursor: 'pointer' }}>✕</button>
+          <div style={{ position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)', color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>
+            {photos.indexOf(lightbox)+1} / {photos.length} &nbsp;|&nbsp; {lightbox.original_filename}
+          </div>
         </div>
       )}
     </div>
@@ -907,6 +1039,7 @@ const ModuleComponents = {
       onPlay={onPlay}
     />
   ),
+  photos: ({ flightData }) => <PhotoGalleryModule flightData={flightData} />,
 };
 
 // ── Module Card ───────────────────────────────────────────────
@@ -1158,6 +1291,395 @@ const AuthScreen = () => {
 };
 
 // ── Flight Edit Panel ─────────────────────────────────────────
+// ── Aircraft Management View ──────────────────────────────────
+const AircraftView = () => {
+  const { token } = useAuthStore();
+  const [aircraft, setAircraft] = useState([]);
+  const [selected, setSelected] = useState(null);  // aircraft detail view
+  const [editing, setEditing]   = useState(null);  // null=list, 'new'=form, aircraft=form
+  const [maintTab, setMaintTab] = useState(false);
+
+  const load = useCallback(async () => {
+    const r = await fetch('/api/v1/aircraft', { headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json();
+    setAircraft(Array.isArray(d) ? d : []);
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const inp = { background: 'var(--bg-input)', border: '1px solid var(--border-input)', borderRadius: 8, padding: '9px 12px', fontSize: 13, color: 'var(--text-primary)', width: '100%', outline: 'none', boxSizing: 'border-box' };
+  const lbl = (t) => <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t}</div>;
+
+  // ── Aircraft Form (add/edit) ──────────────────────────────────
+  if (editing !== null) {
+    const isNew = editing === 'new';
+    const init = isNew ? { name:'', type:'fixed_wing', make:'', model:'', serial_number:'', firmware:'', firmware_ver:'', notes:'', status:'active', purchase_date:'', auw_g:'', wingspan_mm:'', length_mm:'', frame_size_mm:'', motor_count:'', battery_cells:'', battery_mah:'', endurance_min:'', max_speed_kmh:'', range_km:'' }
+      : { ...editing, purchase_date: editing.purchase_date || '', auw_g: editing.auw_g||'', wingspan_mm: editing.wingspan_mm||'', length_mm: editing.length_mm||'', frame_size_mm: editing.frame_size_mm||'', motor_count: editing.motor_count||'', battery_cells: editing.battery_cells||'', battery_mah: editing.battery_mah||'', endurance_min: editing.endurance_min||'', max_speed_kmh: editing.max_speed_kmh||'', range_km: editing.range_km||'' };
+
+    return <AircraftForm initial={init} isNew={isNew} token={token} inp={inp} lbl={lbl}
+      onCancel={() => setEditing(null)}
+      onSaved={() => { load(); setEditing(null); if (!isNew) setSelected(null); }} />;
+  }
+
+  // ── Aircraft Detail (with maintenance log) ────────────────────
+  if (selected) {
+    return (
+      <div style={{ maxWidth: 800 }}>
+        <button onClick={() => { setSelected(null); setMaintTab(false); }}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, marginBottom: 16 }}>
+          <ChevronLeft size={16} /> Back to Fleet
+        </button>
+
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+            <div style={{ fontSize: 40 }}>{AIRCRAFT_TYPES[selected.type]?.emoji || '✈'}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-bright)' }}>{selected.name}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{selected.make} {selected.model}</div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <span style={{ background: '#3B82F620', border: '1px solid #3B82F640', color: '#60A5FA', padding: '3px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700 }}>{AIRCRAFT_TYPES[selected.type]?.label || selected.type}</span>
+                <span style={{ background: selected.status==='active' ? '#10B98115' : selected.status==='crashed' ? '#EF444415' : '#F59E0B15', border: `1px solid ${selected.status==='active' ? '#10B98140' : selected.status==='crashed' ? '#EF444440' : '#F59E0B40'}`, color: selected.status==='active' ? '#34D399' : selected.status==='crashed' ? '#F87171' : '#FBBF24', padding: '3px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>{selected.status}</span>
+              </div>
+            </div>
+            <button onClick={() => setEditing(selected)}
+              style={{ ...btnSmallStyle, flexShrink: 0 }}>
+              <Edit3 size={13} /> Edit
+            </button>
+          </div>
+
+          {/* Spec grid */}
+          {(() => {
+            const typeSpec = AIRCRAFT_TYPES[selected.type]?.specs || [];
+            const visibleSpecs = typeSpec.filter(k => selected[k]);
+            if (!visibleSpecs.length) return null;
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px,1fr))', gap: 10, marginTop: 16, padding: '16px 0 0', borderTop: '1px solid var(--border-subtle)' }}>
+                {visibleSpecs.map(k => (
+                  <div key={k}>
+                    <div style={{ fontSize: 10, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{SPEC_LABELS[k] || k}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{selected[k]}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {selected.notes && <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-muted)', background: 'var(--bg-input)', borderRadius: 8, padding: 12 }}>{selected.notes}</div>}
+        </div>
+
+        {/* Tabs: Maintenance */}
+        <div style={{ display: 'flex', gap: 2, marginBottom: 16 }}>
+          {[{ key: false, label: 'Details' }, { key: true, label: 'Maintenance Log' }].map(t => (
+            <button key={String(t.key)} onClick={() => setMaintTab(t.key)}
+              style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: '1px solid', borderColor: maintTab === t.key ? 'var(--accent)' : 'var(--border)', background: maintTab === t.key ? 'var(--accent-bg)' : 'var(--bg-card)', color: maintTab === t.key ? 'var(--accent)' : 'var(--text-muted)' }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {!maintTab && (
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
+            <div style={{ color: 'var(--text-faint)', fontSize: 13 }}>
+              {selected.firmware && <div><b style={{ color: 'var(--text-muted)' }}>Firmware:</b> {selected.firmware} {selected.firmware_ver}</div>}
+              {selected.serial_number && <div style={{ marginTop: 6 }}><b style={{ color: 'var(--text-muted)' }}>Serial:</b> {selected.serial_number}</div>}
+              {selected.purchase_date && <div style={{ marginTop: 6 }}><b style={{ color: 'var(--text-muted)' }}>Purchased:</b> {selected.purchase_date}</div>}
+            </div>
+          </div>
+        )}
+
+        {maintTab && <MaintenanceLog aircraftId={selected.id} token={token} />}
+      </div>
+    );
+  }
+
+  // ── Fleet list ────────────────────────────────────────────────
+  return (
+    <div style={{ maxWidth: 900 }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>My Fleet</h2>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setEditing('new')}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--accent)', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+          <Plus size={14} /> Add Aircraft
+        </button>
+      </div>
+
+      {!aircraft.length && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-faint)' }}>
+          <Box size={40} style={{ margin: '0 auto 12px', opacity: 0.4 }} />
+          <div>No aircraft yet. Add your first UAV.</div>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px,1fr))', gap: 12 }}>
+        {aircraft.map(ac => {
+          const typeInfo = AIRCRAFT_TYPES[ac.type] || AIRCRAFT_TYPES.other;
+          const specKeys = typeInfo.specs.filter(k => ac[k]);
+          return (
+            <div key={ac.id} onClick={() => setSelected(ac)}
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, cursor: 'pointer', transition: 'border-color 0.15s', position: 'relative' }}
+              onMouseOver={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+              onMouseOut={e => e.currentTarget.style.borderColor = 'var(--border)'}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                <div style={{ fontSize: 30 }}>{typeInfo.emoji}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-bright)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ac.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>{ac.make} {ac.model}</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: specKeys.length ? 10 : 0 }}>
+                <span style={{ background: '#3B82F615', border: '1px solid #3B82F630', color: '#60A5FA', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{typeInfo.label}</span>
+                <span style={{ background: ac.status==='active'?'#10B98115':ac.status==='crashed'?'#EF444415':'#F59E0B15', border:`1px solid ${ac.status==='active'?'#10B98130':ac.status==='crashed'?'#EF444430':'#F59E0B30'}`, color: ac.status==='active'?'#34D399':ac.status==='crashed'?'#F87171':'#FBBF24', padding:'2px 8px', borderRadius:6, fontSize:10, fontWeight:700, textTransform:'uppercase' }}>{ac.status}</span>
+              </div>
+              {specKeys.length > 0 && (
+                <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+                  {specKeys.slice(0,3).map(k => (
+                    <span key={k}><span style={{ color: 'var(--text-faint)' }}>{SPEC_LABELS[k]?.split(' ')[0]}:</span> {ac[k]}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// ── Aircraft Form (add / edit) ────────────────────────────────
+const AircraftForm = ({ initial, isNew, token, inp, lbl, onCancel, onSaved }) => {
+  const [form, setForm] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const typeSpecs = AIRCRAFT_TYPES[form.type]?.specs || [];
+
+  const save = async () => {
+    if (!form.name.trim()) { setError('Name is required'); return; }
+    setSaving(true); setError('');
+    const body = { ...form };
+    try {
+      const r = await fetch(isNew ? '/api/v1/aircraft' : `/api/v1/aircraft/${initial.id}`, {
+        method: isNew ? 'POST' : 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (j.error) { setError(j.error); return; }
+      onSaved();
+    } catch { setError('Save failed'); } finally { setSaving(false); }
+  };
+
+  const del = async () => {
+    if (!confirm('Delete this aircraft? This cannot be undone.')) return;
+    await fetch(`/api/v1/aircraft/${initial.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    onSaved();
+  };
+
+  const selectSt = { ...inp, appearance: 'none', cursor: 'pointer' };
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <button onClick={onCancel} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}><ChevronLeft size={16} /> Back</button>
+        <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{isNew ? 'Add Aircraft' : `Edit — ${initial.name}`}</h2>
+        {!isNew && (
+          <button onClick={del} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, background: '#EF444415', border: '1px solid #EF444430', color: '#EF4444', padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12 }}>
+            <Trash2 size={13} /> Delete
+          </button>
+        )}
+      </div>
+
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Core fields */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ gridColumn: '1 / -1' }}>
+            {lbl('Name / Callsign')}
+            <input style={inp} value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Falcon 3" />
+          </div>
+          <div>
+            {lbl('Type')}
+            <select style={selectSt} value={form.type} onChange={e => set('type', e.target.value)}>
+              {Object.entries(AIRCRAFT_TYPES).map(([k, v]) => <option key={k} value={k}>{v.emoji} {v.label}</option>)}
+            </select>
+          </div>
+          <div>
+            {lbl('Status')}
+            <select style={selectSt} value={form.status} onChange={e => set('status', e.target.value)}>
+              <option value="active">Active</option>
+              <option value="retired">Retired</option>
+              <option value="crashed">Crashed</option>
+            </select>
+          </div>
+          <div>
+            {lbl('Manufacturer')}
+            <input style={inp} value={form.make} onChange={e => set('make', e.target.value)} placeholder="e.g. Zohd, TBS" />
+          </div>
+          <div>
+            {lbl('Model')}
+            <input style={inp} value={form.model} onChange={e => set('model', e.target.value)} placeholder="e.g. Dart XL" />
+          </div>
+          <div>
+            {lbl('Serial Number')}
+            <input style={inp} value={form.serial_number} onChange={e => set('serial_number', e.target.value)} placeholder="optional" />
+          </div>
+          <div>
+            {lbl('Purchase Date')}
+            <input style={inp} type="date" value={form.purchase_date} onChange={e => set('purchase_date', e.target.value)} />
+          </div>
+          <div>
+            {lbl('Firmware')}
+            <input style={inp} value={form.firmware} onChange={e => set('firmware', e.target.value)} placeholder="ArduPilot / iNav / Betaflight…" />
+          </div>
+          <div>
+            {lbl('Firmware Version')}
+            <input style={inp} value={form.firmware_ver} onChange={e => set('firmware_ver', e.target.value)} placeholder="e.g. 4.5.1" />
+          </div>
+        </div>
+
+        {/* Type-specific specs */}
+        {typeSpecs.length > 0 && (
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em', borderTop: '1px solid var(--border-subtle)', paddingTop: 14 }}>Specifications</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {typeSpecs.map(k => (
+                <div key={k}>
+                  {lbl(SPEC_LABELS[k] || k)}
+                  <input style={inp} type="number" min="0" value={form[k] || ''} onChange={e => set(k, e.target.value)} placeholder="—" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Notes */}
+        <div>
+          {lbl('Notes')}
+          <textarea style={{ ...inp, resize: 'vertical', minHeight: 70 }} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any notes about this airframe…" />
+        </div>
+
+        {error && <div style={{ fontSize: 12, color: '#EF4444', background: '#EF444415', padding: '8px 12px', borderRadius: 8 }}>{error}</div>}
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onCancel} style={{ flex: 1, background: 'var(--bg-input)', border: '1px solid var(--border)', color: 'var(--text-secondary)', padding: '10px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ flex: 2, background: 'var(--accent)', border: 'none', color: '#fff', padding: '10px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+            {saving ? 'Saving…' : isNew ? 'Add Aircraft' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Maintenance Log ───────────────────────────────────────────
+const MaintenanceLog = ({ aircraftId, token }) => {
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding]   = useState(false);
+  const [form, setForm]       = useState({ maintenance_date: new Date().toISOString().slice(0,10), type: 'repair', description: '', parts_replaced: '', cost: '' });
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/v1/maintenance/${aircraftId}`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      setRecords(Array.isArray(d) ? d : []);
+    } catch { } finally { setLoading(false); }
+  }, [aircraftId, token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const save = async () => {
+    if (!form.description.trim()) return;
+    await fetch(`/api/v1/maintenance/${aircraftId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(form),
+    });
+    setAdding(false);
+    setForm({ maintenance_date: new Date().toISOString().slice(0,10), type: 'repair', description: '', parts_replaced: '', cost: '' });
+    load();
+  };
+
+  const del = async (id) => {
+    if (!confirm('Delete this record?')) return;
+    await fetch(`/api/v1/maintenance/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    setRecords(r => r.filter(x => x.id !== id));
+  };
+
+  const inp = { background: 'var(--bg-input)', border: '1px solid var(--border-input)', borderRadius: 8, padding: '8px 12px', fontSize: 13, color: 'var(--text-primary)', width: '100%', outline: 'none', boxSizing: 'border-box' };
+  const typeColors = { repair:'#EF4444', inspection:'#3B82F6', part_swap:'#F59E0B', crash:'#DC2626', upgrade:'#10B981', other:'#8B5CF6' };
+
+  if (loading) return <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: 16 }}>Loading…</div>;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button onClick={() => setAdding(a => !a)}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--accent)', border: 'none', color: '#fff', padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+          <Plus size={13} /> Add Record
+        </button>
+      </div>
+
+      {adding && (
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--accent)', borderRadius: 12, padding: 16, marginBottom: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Date</div>
+              <input style={inp} type="date" value={form.maintenance_date} onChange={e => set('maintenance_date', e.target.value)} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Type</div>
+              <select style={{ ...inp, cursor: 'pointer' }} value={form.type} onChange={e => set('type', e.target.value)}>
+                {Object.entries(MAINT_TYPES).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Description *</div>
+              <input style={inp} value={form.description} onChange={e => set('description', e.target.value)} placeholder="What was done?" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Parts Replaced</div>
+              <input style={inp} value={form.parts_replaced} onChange={e => set('parts_replaced', e.target.value)} placeholder="optional" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Cost (€/$)</div>
+              <input style={inp} type="number" min="0" step="0.01" value={form.cost} onChange={e => set('cost', e.target.value)} placeholder="0.00" />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setAdding(false)} style={{ flex: 1, background: 'var(--bg-input)', border: '1px solid var(--border)', color: 'var(--text-secondary)', padding: '8px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+            <button onClick={save} style={{ flex: 2, background: 'var(--accent)', border: 'none', color: '#fff', padding: '8px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Save Record</button>
+          </div>
+        </div>
+      )}
+
+      {!records.length && !adding && (
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-faint)', background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)' }}>
+          <Wrench size={28} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
+          <div>No maintenance records yet.</div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {records.map(rec => (
+          <div key={rec.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ background: `${typeColors[rec.type] || '#8B5CF6'}20`, border: `1px solid ${typeColors[rec.type] || '#8B5CF6'}40`, color: typeColors[rec.type] || '#8B5CF6', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700 }}>{MAINT_TYPES[rec.type] || rec.type}</span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{rec.maintenance_date}</span>
+              {rec.cost && <span style={{ fontSize: 11, color: 'var(--text-faint)', marginLeft: 'auto' }}>€{parseFloat(rec.cost).toFixed(2)}</span>}
+              <button onClick={() => del(rec.id)} style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', padding: 4 }}><Trash2 size={13} /></button>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6 }}>{rec.description}</div>
+            {rec.parts_replaced && <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4 }}>Parts: {rec.parts_replaced}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const FlightEditPanel = ({ flight, token, onClose, onSaved }) => {
   const [form, setForm] = useState({
     display_name:  flight.display_name  || '',
@@ -1355,6 +1877,7 @@ export default function App() {
           {[
             { key: 'dashboard', icon: Home,    label: 'Dashboard' },
             { key: 'upload',    icon: Upload,  label: 'Import Log' },
+            { key: 'aircraft',  icon: Box,     label: 'My Fleet' },
             { key: 'settings',  icon: Settings,label: 'Settings' },
           ].map(item => (
             <button key={item.key} onClick={() => setView(item.key)}
@@ -1401,6 +1924,11 @@ export default function App() {
                 <Edit3 size={13} /> Edit
               </button>
             </>
+          )}
+          {(view === 'upload' || view === 'settings' || view === 'aircraft') && (
+            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
+              {view === 'upload' ? 'Import Log' : view === 'settings' ? 'Settings' : 'My Fleet'}
+            </span>
           )}
           {view === 'dashboard' && (
             <>
@@ -1594,6 +2122,9 @@ export default function App() {
               </button>
             </div>
           )}
+
+          {/* AIRCRAFT / FLEET VIEW */}
+          {view === 'aircraft' && <AircraftView />}
         </div>
       </div>
     </div>

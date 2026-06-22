@@ -34,14 +34,27 @@ CREATE TABLE IF NOT EXISTS `aircraft` (
   `id`            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `user_id`       INT UNSIGNED NOT NULL,
   `name`          VARCHAR(100) NOT NULL,
-  `type`          ENUM('multirotor','fixed_wing','vtol','helicopter','other') DEFAULT 'multirotor',
+  `type`          ENUM('multirotor','fixed_wing','vtol','helicopter','fpv','recon','strike','other') DEFAULT 'multirotor',
   `make`          VARCHAR(100) DEFAULT NULL,
   `model`         VARCHAR(100) DEFAULT NULL,
   `serial_number` VARCHAR(100) DEFAULT NULL,
-  `firmware`      VARCHAR(50) DEFAULT NULL,    -- ArduPilot, PX4, DJI, Betaflight, INAV
+  `firmware`      VARCHAR(50) DEFAULT NULL,
   `firmware_ver`  VARCHAR(50) DEFAULT NULL,
   `notes`         TEXT DEFAULT NULL,
   `image_url`     VARCHAR(500) DEFAULT NULL,
+  `status`        ENUM('active','retired','crashed') NOT NULL DEFAULT 'active',
+  `purchase_date` DATE DEFAULT NULL,
+  `auw_g`         INT UNSIGNED DEFAULT NULL,       -- all-up weight in grams
+  `wingspan_mm`   INT UNSIGNED DEFAULT NULL,       -- wingspan (fixed wing / recon)
+  `length_mm`     INT UNSIGNED DEFAULT NULL,       -- body length
+  `frame_size_mm` INT UNSIGNED DEFAULT NULL,       -- motor-to-motor diagonal (FPV/multirotor)
+  `motor_count`   TINYINT UNSIGNED DEFAULT NULL,
+  `battery_cells` TINYINT UNSIGNED DEFAULT NULL,
+  `battery_mah`   INT UNSIGNED DEFAULT NULL,
+  `endurance_min` SMALLINT UNSIGNED DEFAULT NULL,
+  `max_speed_kmh` SMALLINT UNSIGNED DEFAULT NULL,
+  `range_km`      SMALLINT UNSIGNED DEFAULT NULL,
+  `specs`         JSON DEFAULT NULL,              -- type-specific extras
   `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   INDEX `idx_user_aircraft` (`user_id`)
@@ -236,6 +249,25 @@ CREATE TABLE IF NOT EXISTS `share_tokens` (
 SET FOREIGN_KEY_CHECKS=1;
 
 -- ============================================================
+-- AIRCRAFT MAINTENANCE LOG (added v1.3)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `aircraft_maintenance` (
+  `id`              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `aircraft_id`     INT UNSIGNED NOT NULL,
+  `user_id`         INT UNSIGNED NOT NULL,
+  `maintenance_date` DATE NOT NULL,
+  `type`            ENUM('repair','inspection','part_swap','crash','upgrade','other') NOT NULL DEFAULT 'other',
+  `description`     TEXT NOT NULL,
+  `parts_replaced`  TEXT DEFAULT NULL,
+  `cost`            DECIMAL(8,2) DEFAULT NULL,
+  `created_at`      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`aircraft_id`) REFERENCES `aircraft`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  INDEX `idx_maint_aircraft` (`aircraft_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
 -- VIDEO SYNC EXTENSION (added v1.2)
 -- ============================================================
 
@@ -282,4 +314,27 @@ CREATE TABLE IF NOT EXISTS `flight_videos` (
   FOREIGN KEY (`user_id`)   REFERENCES `users`(`id`)   ON DELETE CASCADE,
   INDEX `idx_video_flight` (`flight_id`),
   INDEX `idx_video_user`   (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- FLIGHT PHOTOS (added v1.3)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `flight_photos` (
+  `id`                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `flight_id`         INT UNSIGNED NOT NULL,
+  `user_id`           INT UNSIGNED NOT NULL,
+  `original_filename` VARCHAR(255) NOT NULL,
+  `storage_path`      VARCHAR(500) NOT NULL,
+  `web_path`          VARCHAR(500) DEFAULT NULL,
+  `file_size`         INT UNSIGNED DEFAULT NULL,
+  `mime_type`         VARCHAR(50) DEFAULT NULL,
+  `width_px`          SMALLINT UNSIGNED DEFAULT NULL,
+  `height_px`         SMALLINT UNSIGNED DEFAULT NULL,
+  `caption`           VARCHAR(255) DEFAULT NULL,
+  `sort_order`        SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  `created_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`flight_id`) REFERENCES `flights`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  INDEX `idx_photo_flight` (`flight_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

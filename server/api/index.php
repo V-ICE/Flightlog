@@ -12,6 +12,7 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../middleware/auth.php';
 require_once __DIR__ . '/../api/processor.php';
 require_once __DIR__ . '/../api/video_handler.php';
+require_once __DIR__ . '/../api/photo_handler.php';
 
 // CORS Headers
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
@@ -145,6 +146,46 @@ try {
             $user = Auth::requireAuth();
             $vh = new VideoHandler();
             echo json_encode($vh->delete($user, $id));
+            break;
+
+        // ── Flight Photos ─────────────────────────────────────
+        case 'GET:photos':
+            $user = Auth::requireAuth();
+            $ph = new PhotoHandler();
+            echo json_encode($ph->getPhotos($id));
+            break;
+        case 'POST:photos':
+            $user = Auth::requireAuth();
+            $ph = new PhotoHandler();
+            echo json_encode($ph->upload($user, $id));
+            break;
+        case 'PUT:photos':
+            $user = Auth::requireAuth();
+            $ph = new PhotoHandler();
+            echo json_encode($ph->updateCaption($user, $id, $body));
+            break;
+        case 'DELETE:photos':
+            $user = Auth::requireAuth();
+            $ph = new PhotoHandler();
+            echo json_encode($ph->delete($user, $id));
+            break;
+
+        // ── Aircraft Maintenance ───────────────────────────────
+        case 'GET:maintenance':
+            $user = Auth::requireAuth();
+            echo json_encode(listMaintenance($user, $id));
+            break;
+        case 'POST:maintenance':
+            $user = Auth::requireAuth();
+            echo json_encode(createMaintenance($user, $id, $body));
+            break;
+        case 'PUT:maintenance':
+            $user = Auth::requireAuth();
+            echo json_encode(updateMaintenance($user, $id, $body));
+            break;
+        case 'DELETE:maintenance':
+            $user = Auth::requireAuth();
+            echo json_encode(deleteMaintenance($user, $id));
             break;
 
         // ── Shared flights (public, no auth) ─────────────────
@@ -368,26 +409,57 @@ function deleteFlight(array $user, int $id): array {
 }
 
 function listAircraft(array $user): array {
-    return DB::query("SELECT * FROM aircraft WHERE user_id=? ORDER BY name", [$user['sub']])->fetchAll();
+    $rows = DB::query("SELECT * FROM aircraft WHERE user_id=? ORDER BY name", [$user['sub']])->fetchAll();
+    foreach ($rows as &$r) $r['specs'] = json_decode($r['specs'] ?? '{}', true);
+    return $rows;
 }
 function getAircraft(array $user, int $id): array {
-    return DB::query("SELECT * FROM aircraft WHERE id=? AND user_id=?", [$id, $user['sub']])->fetch() ?: [];
+    $r = DB::query("SELECT * FROM aircraft WHERE id=? AND user_id=?", [$id, $user['sub']])->fetch();
+    if (!$r) return [];
+    $r['specs'] = json_decode($r['specs'] ?? '{}', true);
+    return $r;
 }
 function createAircraft(array $user, array $body): array {
-    $id = DB::insert('aircraft', [
-        'user_id' => $user['sub'],
-        'name'    => htmlspecialchars($body['name'] ?? 'My UAV'),
-        'type'    => $body['type'] ?? 'multirotor',
-        'make'    => $body['make'] ?? null,
-        'model'   => $body['model'] ?? null,
-        'firmware'=> $body['firmware'] ?? null,
-        'notes'   => $body['notes'] ?? null,
-    ]);
+    $specFields = ['specs'];
+    $numericFields = ['auw_g','wingspan_mm','length_mm','frame_size_mm','motor_count',
+                      'battery_cells','battery_mah','endurance_min','max_speed_kmh','range_km'];
+    $data = [
+        'user_id'       => $user['sub'],
+        'name'          => htmlspecialchars($body['name'] ?? 'My UAV'),
+        'type'          => $body['type'] ?? 'multirotor',
+        'make'          => $body['make'] ?? null,
+        'model'         => $body['model'] ?? null,
+        'serial_number' => $body['serial_number'] ?? null,
+        'firmware'      => $body['firmware'] ?? null,
+        'firmware_ver'  => $body['firmware_ver'] ?? null,
+        'notes'         => $body['notes'] ?? null,
+        'status'        => $body['status'] ?? 'active',
+        'purchase_date' => $body['purchase_date'] ?? null,
+        'specs'         => isset($body['specs']) ? json_encode($body['specs']) : null,
+    ];
+    foreach ($numericFields as $f) {
+        $data[$f] = isset($body[$f]) && $body[$f] !== '' ? (int)$body[$f] : null;
+    }
+    $id = DB::insert('aircraft', $data);
     return ['success' => true, 'id' => $id];
 }
 function updateAircraft(array $user, int $id, array $body): array {
-    $allowed = ['name','type','make','model','serial_number','firmware','firmware_ver','notes'];
-    $updates = array_intersect_key($body, array_flip($allowed));
+    $allowed = ['name','type','make','model','serial_number','firmware','firmware_ver','notes',
+                'status','purchase_date','auw_g','wingspan_mm','length_mm','frame_size_mm',
+                'motor_count','battery_cells','battery_mah','endurance_min','max_speed_kmh','range_km','specs'];
+    $numericFields = ['auw_g','wingspan_mm','length_mm','frame_size_mm','motor_count',
+                      'battery_cells','battery_mah','endurance_min','max_speed_kmh','range_km'];
+    $updates = [];
+    foreach ($allowed as $f) {
+        if (!array_key_exists($f, $body)) continue;
+        if ($f === 'specs') {
+            $updates[$f] = is_array($body[$f]) ? json_encode($body[$f]) : $body[$f];
+        } elseif (in_array($f, $numericFields)) {
+            $updates[$f] = ($body[$f] !== null && $body[$f] !== '') ? (int)$body[$f] : null;
+        } else {
+            $updates[$f] = $body[$f];
+        }
+    }
     if (empty($updates)) return ['success' => false];
     $set = implode(', ', array_map(fn($k) => "`$k`=?", array_keys($updates)));
     DB::query("UPDATE aircraft SET $set WHERE id=? AND user_id=?",
@@ -396,6 +468,51 @@ function updateAircraft(array $user, int $id, array $body): array {
 }
 function deleteAircraft(array $user, int $id): array {
     DB::query("DELETE FROM aircraft WHERE id=? AND user_id=?", [$id, $user['sub']]);
+    return ['success' => true];
+}
+
+function listMaintenance(array $user, int $aircraftId): array {
+    $ac = DB::query("SELECT id FROM aircraft WHERE id=? AND user_id=?", [$aircraftId, $user['sub']])->fetch();
+    if (!$ac) { http_response_code(404); return ['error' => 'Aircraft not found']; }
+    return DB::query(
+        "SELECT id, maintenance_date, type, description, parts_replaced, cost, created_at
+         FROM aircraft_maintenance WHERE aircraft_id=? ORDER BY maintenance_date DESC",
+        [$aircraftId]
+    )->fetchAll();
+}
+function createMaintenance(array $user, int $aircraftId, array $body): array {
+    $ac = DB::query("SELECT id FROM aircraft WHERE id=? AND user_id=?", [$aircraftId, $user['sub']])->fetch();
+    if (!$ac) { http_response_code(404); return ['error' => 'Aircraft not found']; }
+    $id = DB::insert('aircraft_maintenance', [
+        'aircraft_id'      => $aircraftId,
+        'user_id'          => $user['sub'],
+        'maintenance_date' => $body['maintenance_date'] ?? date('Y-m-d'),
+        'type'             => $body['type'] ?? 'other',
+        'description'      => $body['description'] ?? '',
+        'parts_replaced'   => $body['parts_replaced'] ?? null,
+        'cost'             => isset($body['cost']) && $body['cost'] !== '' ? (float)$body['cost'] : null,
+    ]);
+    return ['success' => true, 'id' => $id];
+}
+function updateMaintenance(array $user, int $id, array $body): array {
+    $rec = DB::query("SELECT m.id FROM aircraft_maintenance m
+        JOIN aircraft a ON a.id=m.aircraft_id
+        WHERE m.id=? AND a.user_id=?", [$id, $user['sub']])->fetch();
+    if (!$rec) { http_response_code(404); return ['error' => 'Record not found']; }
+    $allowed = ['maintenance_date','type','description','parts_replaced','cost'];
+    $updates = array_intersect_key($body, array_flip($allowed));
+    if (isset($updates['cost'])) $updates['cost'] = $updates['cost'] !== '' ? (float)$updates['cost'] : null;
+    if (empty($updates)) return ['success' => false];
+    $set = implode(', ', array_map(fn($k) => "`$k`=?", array_keys($updates)));
+    DB::query("UPDATE aircraft_maintenance SET $set WHERE id=?", [...array_values($updates), $id]);
+    return ['success' => true];
+}
+function deleteMaintenance(array $user, int $id): array {
+    $rec = DB::query("SELECT m.id FROM aircraft_maintenance m
+        JOIN aircraft a ON a.id=m.aircraft_id
+        WHERE m.id=? AND a.user_id=?", [$id, $user['sub']])->fetch();
+    if (!$rec) { http_response_code(404); return ['error' => 'Record not found']; }
+    DB::query("DELETE FROM aircraft_maintenance WHERE id=?", [$id]);
     return ['success' => true];
 }
 

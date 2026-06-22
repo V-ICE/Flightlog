@@ -27,10 +27,13 @@ define('JWT_EXPIRY_HOURS', 72);
 // ── File storage ──────────────────────────────────────────
 // Docker: /var/www/uploads/{logs,videos}  (mounted as named volumes)
 // cPanel: ~/uavlogbook_data/uploads/{logs,videos}
-define('UPLOAD_DIR',       getenv('UAVLOG_UPLOAD_DIR')       ?: '/var/www/uploads/logs/');
-define('VIDEO_UPLOAD_DIR', getenv('UAVLOG_VIDEO_UPLOAD_DIR') ?: '/var/www/uploads/videos/');
-define('VIDEO_WEB_PATH',   '/uploads/videos/');
-define('MAX_FILE_MB',      500);
+define('UPLOAD_DIR',        getenv('UAVLOG_UPLOAD_DIR')       ?: '/var/www/uploads/logs/');
+define('VIDEO_UPLOAD_DIR',  getenv('UAVLOG_VIDEO_UPLOAD_DIR') ?: '/var/www/uploads/videos/');
+define('VIDEO_WEB_PATH',    '/uploads/videos/');
+define('PHOTO_UPLOAD_DIR',  getenv('UAVLOG_PHOTO_UPLOAD_DIR') ?: '/var/www/uploads/photos/');
+define('PHOTO_WEB_PATH',    '/uploads/photos/');
+define('MAX_FILE_MB',       500);
+define('MAX_PHOTO_MB',      20);
 
 // ── AI / Claude ───────────────────────────────────────────
 define('ANTHROPIC_API_KEY', getenv('ANTHROPIC_API_KEY') ?: '');
