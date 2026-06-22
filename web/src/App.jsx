@@ -287,6 +287,23 @@ const FitBounds = ({ positions, homeOnly }) => {
 const MapModule = ({ data, flightData }) => {
   const [manualHome, setManualHome] = useState(null);
   const [tileStyle, setTileStyle] = useState('Satellite');
+  const [fullscreen, setFullscreen] = useState(false);
+  const mapWrapRef = useRef(null);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      mapWrapRef.current?.requestFullscreen();
+      setFullscreen(true);
+    } else {
+      document.exitFullscreen();
+      setFullscreen(false);
+    }
+  };
+  useEffect(() => {
+    const onExit = () => { if (!document.fullscreenElement) setFullscreen(false); };
+    document.addEventListener('fullscreenchange', onExit);
+    return () => document.removeEventListener('fullscreenchange', onExit);
+  }, []);
   const rawGps = data?.gps || [];
   const gps = rawGps.filter(p => p.lat != null && p.lng != null && !isNaN(p.lat) && !isNaN(p.lng));
 
@@ -313,7 +330,7 @@ const MapModule = ({ data, flightData }) => {
   const tile = TILE_LAYERS[tileStyle];
 
   return (
-    <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden' }}>
+    <div ref={mapWrapRef} style={{ position: 'relative', borderRadius: fullscreen ? 0 : 10, overflow: 'hidden', background: '#0D1B2A' }}>
       {/* Style switcher */}
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1000, display: 'flex', gap: 5 }}>
         {Object.keys(TILE_LAYERS).map(s => (
@@ -324,16 +341,22 @@ const MapModule = ({ data, flightData }) => {
         ))}
       </div>
 
-      {/* Change home button (homeOnly mode) */}
-      {homeOnly && (
-        <button onClick={() => { localStorage.removeItem(`uavlogbook-home-${flightData?.id}`); setManualHome(null); }}
-          style={{ position: 'absolute', top: 10, right: 10, zIndex: 1000, ...btnSmallStyle, background: 'rgba(10,10,20,0.85)', backdropFilter: 'blur(4px)' }}>
-          <Edit3 size={11} /> Change Home
+      {/* Top-right controls */}
+      <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 1000, display: 'flex', gap: 5 }}>
+        {homeOnly && (
+          <button onClick={() => { localStorage.removeItem(`uavlogbook-home-${flightData?.id}`); setManualHome(null); }}
+            style={{ ...btnSmallStyle, background: 'rgba(10,10,20,0.85)', backdropFilter: 'blur(4px)' }}>
+            <Edit3 size={11} /> Change Home
+          </button>
+        )}
+        <button onClick={toggleFullscreen} title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          style={{ ...btnSmallStyle, background: 'rgba(10,10,20,0.85)', backdropFilter: 'blur(4px)', padding: '5px 8px' }}>
+          <Maximize2 size={13} />
         </button>
-      )}
+      </div>
 
       <MapContainer
-        style={{ height: 340, width: '100%' }}
+        style={{ height: fullscreen ? '100vh' : 340, width: '100%' }}
         center={positions[0]}
         zoom={14}
         zoomControl={true}
