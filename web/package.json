@@ -19,7 +19,7 @@
     "react-dropzone": "^14.2.0",
     "react-hot-toast": "^2.4.1",
     "lucide-react": "^0.383.0",
-    "mgrs": "^3.0.0"
+    "mgrs": "^2.1.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.0",
