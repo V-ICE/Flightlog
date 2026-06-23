@@ -93,15 +93,24 @@ class SkylineParser {
     private string $firmwareVer = '';
     private string $vehicleName = '';
 
+    // User-defined mappings: raw_key → mapped_to ('camera_trigger','ignore','custom:label')
+    private array $mappings = [];
+
     // Parsed data arrays
-    private array $gps      = [];
-    private array $attitude = [];
-    private array $battery  = [];
-    private array $imu      = [];
-    private array $rc       = [];
-    private array $events   = [];
+    private array $gps       = [];
+    private array $attitude  = [];
+    private array $battery   = [];
+    private array $imu       = [];
+    private array $rc        = [];
+    private array $events    = [];
+    private array $camera    = [];
     private array $waypoints = [];
-    private array $params   = [];
+    private array $params    = [];
+    private array $unknownKeys = [];  // key → ['example'=>..., 'count'=>N]
+
+    public function setMappings(array $mappings): void {
+        $this->mappings = $mappings;
+    }
 
     public function parse(string $filePath): array {
         $fp = fopen($filePath, 'r');
@@ -181,6 +190,20 @@ class SkylineParser {
                 $sev == 5 => 'warning',
                 default   => 'info',
             };
+            // Detect camera shutter: "Relay 2 High" (any case/spacing)
+            if (preg_match('/relay\s*2\s*high/i', $msg)) {
+                $this->camera[] = ['t_ms' => $this->tMs()];
+                // also log as an event so it shows in timeline
+                $this->events[] = [
+                    't_ms'        => $this->tMs(),
+                    'event_type'  => 'camera_trigger',
+                    'severity'    => 'info',
+                    'value'       => (string)(count($this->camera)),
+                    'description' => 'Photo #' . count($this->camera),
+                ];
+                return;
+            }
+
             // Detect arming events from status text
             $type = 'message';
             if (stripos($msg, 'armed') !== false && stripos($msg, 'dis') === false) $type = 'arm';
@@ -259,12 +282,34 @@ class SkylineParser {
         if (preg_match('/^\{t:\[(-?\d+),(-?\d+)\]\}$/', $line, $m)) {
             $t1 = (int)$m[1] / 10.0;
             $t2 = (int)$m[2] / 10.0;
-            // Store as IMU temperature if reasonable range
             if ($t1 > -100 && $t1 < 200) {
                 $this->params['last_temp_1'] = $t1;
                 $this->params['last_temp_2'] = $t2;
             }
             return;
+        }
+
+        // ── Unknown key — track it, apply user mapping if defined ─
+        if (preg_match('/^\{([a-zA-Z_][a-zA-Z0-9_]*)[:[\}]/', $line, $m)) {
+            $key = $m[1];
+            // Record for unknown-key report (first seen example only)
+            if (!isset($this->unknownKeys[$key])) {
+                $this->unknownKeys[$key] = ['example' => substr($line, 0, 120), 'count' => 0];
+            }
+            $this->unknownKeys[$key]['count']++;
+
+            // Apply user-defined mapping if one exists
+            $mapped = $this->mappings[$key] ?? null;
+            if ($mapped === 'camera_trigger') {
+                $this->camera[] = ['t_ms' => $this->tMs()];
+                $n = count($this->camera);
+                $this->events[] = ['t_ms' => $this->tMs(), 'event_type' => 'camera_trigger', 'severity' => 'info', 'value' => (string)$n, 'description' => "Photo #$n"];
+            } elseif ($mapped === 'ignore' || $mapped === null) {
+                // silently skip
+            } elseif (str_starts_with($mapped, 'custom:')) {
+                $label = substr($mapped, 7);
+                $this->events[] = ['t_ms' => $this->tMs(), 'event_type' => 'message', 'severity' => 'info', 'value' => $key, 'description' => "$label: $line"];
+            }
         }
     }
 
@@ -398,6 +443,51 @@ class SkylineParser {
         }
     }
 
+    // ── GPS interpolation for camera triggers ─────────────────────
+    private function interpolateCameraPositions(array $triggers, array $gps): array {
+        if (empty($triggers) || empty($gps)) return $triggers;
+
+        $result = [];
+        $n = count($gps);
+
+        foreach ($triggers as $i => $trig) {
+            $tMs = $trig['t_ms'];
+
+            // Binary search for surrounding GPS samples
+            $lo = 0; $hi = $n - 1;
+            while ($lo < $hi - 1) {
+                $mid = (int)(($lo + $hi) / 2);
+                if ($gps[$mid]['t_ms'] <= $tMs) $lo = $mid;
+                else $hi = $mid;
+            }
+
+            $g0 = $gps[$lo];
+            $g1 = $gps[$hi];
+            $span = $g1['t_ms'] - $g0['t_ms'];
+
+            if ($span > 0 && $g0['lat'] !== null && $g1['lat'] !== null) {
+                $frac = ($tMs - $g0['t_ms']) / $span;
+                $lat   = $g0['lat']   + ($g1['lat']   - $g0['lat'])   * $frac;
+                $lng   = $g0['lng']   + ($g1['lng']   - $g0['lng'])   * $frac;
+                $alt   = ($g0['alt_m'] !== null && $g1['alt_m'] !== null)
+                    ? $g0['alt_m'] + ($g1['alt_m'] - $g0['alt_m']) * $frac
+                    : ($g0['alt_m'] ?? $g1['alt_m']);
+            } else {
+                $lat = $g0['lat']; $lng = $g0['lng']; $alt = $g0['alt_m'];
+            }
+
+            $result[] = [
+                't_ms'   => $tMs,
+                'seq'    => $i + 1,
+                'lat'    => $lat !== null ? round($lat, 7) : null,
+                'lng'    => $lng !== null ? round($lng, 7) : null,
+                'alt_m'  => $alt !== null ? round($alt, 2) : null,
+            ];
+        }
+
+        return $result;
+    }
+
     // ── Helpers ───────────────────────────────────────────────────
     private function tMs(): int {
         if ($this->baseTs === 0 || $this->currentTs === 0) return 0;
@@ -435,13 +525,28 @@ class SkylineParser {
             $this->params['home_alt_m']  = round($this->homeAltMm / 1000.0, 3);
         }
 
+        // Interpolate GPS position for each camera trigger
+        $cameraWithPos = $this->interpolateCameraPositions($this->camera, $this->gps);
+
+        // Filter out unknown keys that have user-defined mappings already
+        $unmapped = array_filter($this->unknownKeys, fn($k) => !isset($this->mappings[$k]),
+            ARRAY_FILTER_USE_KEY);
+
+        if ($unmapped) {
+            $this->params['unknown_keys'] = array_map(
+                fn($k, $v) => ['key' => $k, 'example' => $v['example'], 'count' => $v['count']],
+                array_keys($unmapped), $unmapped
+            );
+        }
+
         return [
             'gps'      => $this->gps,
-            'attitude' => $this->attitude,   // populated from attitude-bearing tlm if available
+            'attitude' => $this->attitude,
             'battery'  => $this->battery,
             'imu'      => $this->imu,
             'rc'       => $this->rc,
             'events'   => $this->events,
+            'camera'   => $cameraWithPos,
             'params'   => $this->params,
         ];
     }

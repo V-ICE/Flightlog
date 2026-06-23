@@ -113,7 +113,9 @@ CREATE TABLE IF NOT EXISTS `flights` (
   INDEX `idx_user_flights` (`user_id`),
   INDEX `idx_flight_date` (`flight_date`),
   INDEX `idx_parse_status` (`parse_status`),
-  INDEX `idx_format` (`log_format`)
+  INDEX `idx_format` (`log_format`),
+  INDEX `idx_user_status` (`user_id`, `parse_status`),
+  INDEX `idx_user_created` (`user_id`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- GPS / position telemetry (downsampled for storage efficiency)
@@ -336,8 +338,43 @@ CREATE TABLE IF NOT EXISTS `flight_photos` (
   `height_px`         SMALLINT UNSIGNED DEFAULT NULL,
   `caption`           VARCHAR(255) DEFAULT NULL,
   `sort_order`        SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  `file_hash`         CHAR(32) DEFAULT NULL,
   `created_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (`flight_id`) REFERENCES `flights`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
-  INDEX `idx_photo_flight` (`flight_id`)
+  INDEX `idx_photo_flight` (`flight_id`),
+  UNIQUE KEY `uq_photo_hash` (`flight_id`, `file_hash`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- USER LOG KEY MAPPINGS (permanent definitions for unknown log entries)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `user_log_mappings` (
+  `id`          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `user_id`     INT UNSIGNED NOT NULL,
+  `log_format`  VARCHAR(50) NOT NULL,
+  `raw_key`     VARCHAR(100) NOT NULL,
+  `mapped_to`   VARCHAR(100) NOT NULL,
+  `label`       VARCHAR(100) DEFAULT NULL,
+  `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uq_user_mapping` (`user_id`, `log_format`, `raw_key`),
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- CAMERA TRIGGERS (photo shutter events from flight log)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `telemetry_camera` (
+  `id`         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `flight_id`  INT UNSIGNED NOT NULL,
+  `t_ms`       INT UNSIGNED NOT NULL,
+  `seq`        SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  `lat`        DECIMAL(10,7) DEFAULT NULL,
+  `lng`        DECIMAL(10,7) DEFAULT NULL,
+  `alt_m`      FLOAT DEFAULT NULL,
+  FOREIGN KEY (`flight_id`) REFERENCES `flights`(`id`) ON DELETE CASCADE,
+  INDEX `idx_cam_flight` (`flight_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

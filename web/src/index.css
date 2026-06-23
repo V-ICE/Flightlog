@@ -8,13 +8,17 @@ html, body, #root {
   color: #E2E8F0;
   font-family: 'Inter', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
 }
 
 /* Scrollbars */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* Smooth scrolling on iOS */
+.scroll-area { -webkit-overflow-scrolling: touch; }
 
 /* Leaflet map */
 .leaflet-container { height: 100%; width: 100%; z-index: 1; }
@@ -31,5 +35,221 @@ html, body, #root {
 }
 .map-label::before { display: none !important; }
 
+/* Focus rings */
 button:focus-visible { outline: 2px solid #3B82F6; outline-offset: 2px; }
-input:focus { outline: 1px solid #3B82F6; }
+input:focus, select:focus, textarea:focus { outline: 1px solid #3B82F6; }
+
+/* Spin animation for loading indicators */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.spin { animation: spin 1s linear infinite; }
+
+/* ── Responsive layout ──────────────────────────────────────── */
+
+/* Dashboard stat grid: 4 cols → 2 cols → 1 col */
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+@media (max-width: 900px) {
+  .dash-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 520px) {
+  .dash-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+}
+
+/* Sidebar mobile overlay */
+.sidebar {
+  width: 260px;
+  min-width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-panel);
+  transition: transform 0.25s ease;
+  overflow: hidden;
+  z-index: 200;
+}
+@media (max-width: 767px) {
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    height: 100%;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 24px rgba(0,0,0,0.5);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+}
+
+/* Sidebar backdrop (mobile only) */
+.sidebar-backdrop {
+  display: none;
+}
+@media (max-width: 767px) {
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 199;
+    backdrop-filter: blur(2px);
+  }
+}
+
+/* Main layout shell */
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Main content area */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Content scroll area */
+.content-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  -webkit-overflow-scrolling: touch;
+}
+@media (max-width: 767px) {
+  .content-scroll { padding: 12px; }
+}
+
+/* ── Touch-friendly targets ─────────────────────────────────── */
+@media (max-width: 767px) {
+  button, label[for], .clickable {
+    min-height: 44px;
+  }
+  /* Flight row touch area */
+  .flight-row {
+    padding: 14px !important;
+  }
+  /* Form inputs */
+  input, select, textarea {
+    font-size: 16px !important; /* prevents iOS zoom */
+    min-height: 44px;
+  }
+  /* Nav items */
+  .nav-item {
+    min-height: 48px !important;
+  }
+}
+
+/* ── Auth screen ────────────────────────────────────────────── */
+.auth-card {
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-input);
+  border-radius: 16px;
+  padding: 32px;
+}
+@media (max-width: 420px) {
+  .auth-card { padding: 24px 20px; }
+}
+
+/* ── Topbar ─────────────────────────────────────────────────── */
+.topbar {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+@media (max-width: 767px) {
+  .topbar { padding: 10px 12px; gap: 8px; }
+}
+
+/* ── Flight detail metadata strip ───────────────────────────── */
+.flight-meta-strip {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+@media (max-width: 767px) {
+  .flight-meta-strip { gap: 12px; }
+  .flight-meta-strip .hide-mobile { display: none; }
+}
+
+/* ── Aircraft fleet grid ────────────────────────────────────── */
+.fleet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+@media (max-width: 560px) {
+  .fleet-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Spec grid ──────────────────────────────────────────────── */
+.spec-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+@media (max-width: 520px) {
+  .spec-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Aircraft form grid ─────────────────────────────────────── */
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 560px) {
+  .form-grid-2 { grid-template-columns: 1fr; }
+  .form-grid-2 .span-2 { grid-column: 1; }
+}
+
+/* ── Photo gallery grid ─────────────────────────────────────── */
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+@media (max-width: 400px) {
+  .photo-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Module card header ─────────────────────────────────────── */
+.module-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-module-header);
+  cursor: pointer;
+  user-select: none;
+}
+@media (max-width: 767px) {
+  .module-header { padding: 13px 14px; }
+}
+
+/* ── Stats grid in module ───────────────────────────────────── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+@media (max-width: 480px) {
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+}

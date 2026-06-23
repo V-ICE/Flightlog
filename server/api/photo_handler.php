@@ -81,6 +81,16 @@ class PhotoHandler {
                 continue;
             }
 
+            $hash = md5_file($file['tmp_name']);
+            $existing = DB::query(
+                "SELECT id FROM flight_photos WHERE flight_id=? AND file_hash=?",
+                [$flightId, $hash]
+            )->fetch();
+            if ($existing) {
+                $errors[] = $file['name'] . ': duplicate (already uploaded)';
+                continue;
+            }
+
             $fname = uniqid('ph_', true) . '.' . $ext;
             $storagePath = $dir . $fname;
             if (!move_uploaded_file($file['tmp_name'], $storagePath)) {
@@ -101,6 +111,7 @@ class PhotoHandler {
                 'mime_type'         => $mime,
                 'width_px'          => $w,
                 'height_px'         => $h,
+                'file_hash'         => $hash,
             ]);
 
             $saved[] = [
@@ -113,7 +124,8 @@ class PhotoHandler {
             ];
         }
 
-        return ['success' => true, 'saved' => $saved, 'errors' => $errors];
+        $dupes = count(array_filter($errors, fn($e) => str_contains($e, 'duplicate')));
+        return ['success' => true, 'saved' => $saved, 'errors' => $errors, 'duplicates_skipped' => $dupes];
     }
 
     public function updateCaption(array $user, int $photoId, array $body): array {

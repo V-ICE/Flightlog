@@ -10,13 +10,13 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
+          vendor: ['react', 'react-dom'],
           charts: ['recharts'],
           maps: ['leaflet', 'react-leaflet'],
-          three: ['three', '@react-three/fiber', '@react-three/drei'],
         }
       }
-    }
+    },
+    chunkSizeWarningLimit: 600,
   },
   server: {
     port: 3000,

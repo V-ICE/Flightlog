@@ -19,7 +19,7 @@ import {
   Camera, Wrench, ChevronLeft, ImageOff
 } from "lucide-react";
 import { VideoSyncModule } from "./VideoSync.jsx";
-import { useUIStore } from './store.js';
+import { useAuthStore, useUIStore } from './store.js';
 import { themes, applyTheme } from './themes.js';
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip as LeafletTooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -39,6 +39,7 @@ const defaultModules = [
   { key: 'stats',       label: 'Statistics',       enabled: true,  icon: BarChart3,    color: '#A78BFA' },
   { key: 'video_sync',  label: 'FPV Video',        enabled: true,  icon: Video,        color: '#A78BFA' },
   { key: 'photos',      label: 'Recon Photos',     enabled: true,  icon: Camera,       color: '#F97316' },
+  { key: 'camera_log', label: 'Camera Triggers',  enabled: true,  icon: Camera,       color: '#A78BFA' },
 ];
 
 // ── Aircraft type definitions ─────────────────────────────────
@@ -477,17 +478,33 @@ const PhotoGalleryModule = ({ flightData }) => {
 
   useEffect(() => { load(); }, [load]);
 
+  const [uploadProgress, setUploadProgress] = useState('');
+  const [uploadSummary, setUploadSummary] = useState('');
+
   const handleFiles = async (files) => {
     if (!files?.length) return;
     setUploading(true);
-    const fd = new FormData();
-    for (const f of files) fd.append('photos[]', f);
+    setUploadSummary('');
+    const BATCH = 50;
+    const total = files.length;
+    let totalDupes = 0;
+    let totalSaved = 0;
     try {
-      await fetch(`/api/v1/photos/${flightData.id}`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
-      });
+      for (let i = 0; i < total; i += BATCH) {
+        const chunk = files.slice(i, i + BATCH);
+        const fd = new FormData();
+        for (const f of chunk) fd.append('photos[]', f);
+        setUploadProgress(`Uploading ${Math.min(i + BATCH, total)} / ${total}…`);
+        const r = await fetch(`/api/v1/photos/${flightData.id}`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+        });
+        const j = await r.json();
+        totalSaved += j.saved?.length || 0;
+        totalDupes += j.duplicates_skipped || 0;
+      }
       await load();
-    } catch { } finally { setUploading(false); }
+      if (totalDupes > 0) setUploadSummary(`${totalSaved} added, ${totalDupes} duplicate${totalDupes !== 1 ? 's' : ''} skipped`);
+    } catch { } finally { setUploading(false); setUploadProgress(''); }
   };
 
   const del = async (id) => {
@@ -504,12 +521,13 @@ const PhotoGalleryModule = ({ flightData }) => {
       {/* Upload bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{photos.length} photo{photos.length !== 1 ? 's' : ''}</span>
+        {uploadSummary && <span style={{ fontSize: 11, color: '#F59E0B', background: '#F59E0B15', padding: '2px 8px', borderRadius: 8 }}>{uploadSummary}</span>}
         <div style={{ flex: 1 }} />
         <input ref={fileRef} type="file" multiple accept="image/*" style={{ display: 'none' }}
           onChange={e => handleFiles(Array.from(e.target.files))} />
         <button onClick={() => fileRef.current?.click()} disabled={uploading}
           style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--accent)', border: 'none', color: '#fff', padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: uploading ? 0.6 : 1 }}>
-          <Camera size={13} />{uploading ? 'Uploading…' : 'Add Photos'}
+          <Camera size={13} />{uploading ? (uploadProgress || 'Uploading…') : 'Add Photos'}
         </button>
       </div>
 
@@ -560,6 +578,93 @@ const PhotoGalleryModule = ({ flightData }) => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+// ── Module: Camera Triggers ───────────────────────────────────
+const CameraLogModule = ({ flightData }) => {
+  const { token } = useAuthStore();
+  const [triggers, setTriggers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!flightData?.id) return;
+    fetch(`/api/v1/flights/${flightData.id}/camera`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { setTriggers(d.telemetry || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [flightData?.id, token]);
+
+  if (loading) return <div style={emptyStyle}>Loading camera data…</div>;
+
+  if (!triggers.length) return (
+    <div style={{ textAlign: 'center', padding: '28px 20px', color: 'var(--text-faint)' }}>
+      <Camera size={28} style={{ margin: '0 auto 10px', display: 'block', opacity: 0.3 }} />
+      <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No camera triggers found in this log</div>
+      <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4 }}>Triggers appear as "Relay 2 High" in Skyline logs</div>
+    </div>
+  );
+
+  const total = triggers.length;
+  const alts = triggers.map(t => t.alt_m).filter(a => a != null);
+  const avgAlt = alts.length ? (alts.reduce((s, a) => s + a, 0) / alts.length).toFixed(1) : '—';
+  const minAlt = alts.length ? Math.min(...alts).toFixed(1) : '—';
+  const maxAlt = alts.length ? Math.max(...alts).toFixed(1) : '—';
+
+  // Compute average interval
+  let avgInterval = '—';
+  if (triggers.length > 1) {
+    const intervals = [];
+    for (let i = 1; i < triggers.length; i++) intervals.push(triggers[i].t_ms - triggers[i-1].t_ms);
+    avgInterval = (intervals.reduce((s, v) => s + v, 0) / intervals.length / 1000).toFixed(1) + 's';
+  }
+
+  return (
+    <div>
+      {/* Summary stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px,1fr))', gap: 10, marginBottom: 16 }}>
+        {[
+          { label: 'Total Photos', value: total, color: '#A78BFA' },
+          { label: 'Avg Interval', value: avgInterval, color: '#3B82F6' },
+          { label: 'Avg Altitude', value: avgAlt !== '—' ? `${avgAlt}m` : '—', color: '#10B981' },
+          { label: 'Alt Range', value: minAlt !== '—' ? `${minAlt}–${maxAlt}m` : '—', color: '#F59E0B' },
+        ].map(s => (
+          <div key={s.label} style={{ background: 'var(--bg-input)', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ fontSize: 10, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{s.label}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: s.color }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Trigger list */}
+      <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border)' }}>
+              {['#', 'Time', 'Latitude', 'Longitude', 'Altitude'].map(h => (
+                <th key={h} style={{ padding: '6px 10px', textAlign: h === '#' ? 'center' : 'left', color: 'var(--text-faint)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {triggers.map((t, i) => {
+              const secs = Math.round(t.t_ms / 1000);
+              const mm = String(Math.floor(secs / 60)).padStart(2, '0');
+              const ss = String(secs % 60).padStart(2, '0');
+              return (
+                <tr key={t.seq || i} style={{ borderBottom: '1px solid var(--border-subtle)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                  <td style={{ padding: '6px 10px', textAlign: 'center', color: '#A78BFA', fontWeight: 700 }}>{t.seq || i + 1}</td>
+                  <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>{mm}:{ss}</td>
+                  <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: 'var(--text-muted)' }}>{t.lat != null ? Number(t.lat).toFixed(6) : '—'}</td>
+                  <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: 'var(--text-muted)' }}>{t.lng != null ? Number(t.lng).toFixed(6) : '—'}</td>
+                  <td style={{ padding: '6px 10px', color: '#10B981' }}>{t.alt_m != null ? `${Number(t.alt_m).toFixed(1)} m` : '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };
@@ -1062,7 +1167,8 @@ const ModuleComponents = {
       onPlay={onPlay}
     />
   ),
-  photos: ({ flightData }) => <PhotoGalleryModule flightData={flightData} />,
+  photos:      ({ flightData }) => <PhotoGalleryModule flightData={flightData} />,
+  camera_log:  ({ flightData }) => <CameraLogModule flightData={flightData} />,
 };
 
 // ── Module Card ───────────────────────────────────────────────
@@ -1113,43 +1219,168 @@ const ModuleTogglePanel = ({ modules, onToggle }) => (
   </div>
 );
 
+// ── Unknown Log Keys — definition modal ──────────────────────
+const MAPPING_OPTIONS = [
+  { value: 'camera_trigger', label: 'Camera Trigger (shutter fire)' },
+  { value: 'ignore',         label: 'Ignore (skip silently)' },
+  { value: 'custom',         label: 'Custom label…' },
+];
+
+const UnknownKeysModal = ({ unknowns, logFormat, token, onDone }) => {
+  const [defs, setDefs] = useState(() =>
+    Object.fromEntries(unknowns.map(u => [u.key, { mapped_to: 'ignore', label: '', custom: false }]))
+  );
+  const [saving, setSaving] = useState(false);
+
+  const setDef = (key, field, val) =>
+    setDefs(prev => ({ ...prev, [key]: { ...prev[key], [field]: val } }));
+
+  const save = async () => {
+    setSaving(true);
+    const toSave = unknowns.filter(u => defs[u.key]?.mapped_to !== 'ignore');
+    for (const u of toSave) {
+      const d = defs[u.key];
+      const mapped_to = d.mapped_to === 'custom' ? `custom:${d.label || u.key}` : d.mapped_to;
+      await fetch('/api/v1/log-mappings', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ log_format: logFormat, raw_key: u.key, mapped_to, label: d.label || null }),
+      });
+    }
+    setSaving(false);
+    onDone();
+  };
+
+  const inp = { background: 'var(--bg-input)', border: '1px solid var(--border-input)', borderRadius: 6, padding: '7px 10px', fontSize: 12, color: 'var(--text-primary)', outline: 'none', width: '100%' };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-panel)', borderRadius: 16, padding: 28, width: '100%', maxWidth: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-bright)', marginBottom: 4 }}>Unknown Log Entries Found</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            The log contained {unknowns.length} unrecognised key{unknowns.length !== 1 ? 's' : ''}. Define what each one is and the definition will be saved permanently — future imports will apply it automatically.
+          </div>
+        </div>
+
+        <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {unknowns.map(u => (
+            <div key={u.key} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <code style={{ background: 'var(--bg-input)', padding: '2px 8px', borderRadius: 5, fontSize: 12, color: '#A78BFA', fontFamily: 'monospace' }}>{u.key}</code>
+                <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{u.count} occurrence{u.count !== 1 ? 's' : ''}</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: 'monospace', background: 'var(--bg-input)', borderRadius: 6, padding: '4px 8px', marginBottom: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.example}</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select value={defs[u.key]?.mapped_to} onChange={e => setDef(u.key, 'mapped_to', e.target.value)} style={{ ...inp, flex: 1 }}>
+                  {MAPPING_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                {defs[u.key]?.mapped_to === 'custom' && (
+                  <input value={defs[u.key]?.label || ''} onChange={e => setDef(u.key, 'label', e.target.value)}
+                    placeholder="Label name…" style={{ ...inp, flex: 1 }} />
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 4 }}>
+          <button onClick={onDone} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '9px 18px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>
+            Skip for now
+          </button>
+          <button onClick={save} disabled={saving} style={{ background: '#3B82F6', border: 'none', color: '#fff', padding: '9px 20px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700, opacity: saving ? 0.6 : 1 }}>
+            {saving ? 'Saving…' : 'Save Definitions'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Upload Drop Zone ──────────────────────────────────────────
 const UploadZone = ({ onUpload }) => {
-  const [dragging, setDragging] = useState(false);
-  const [progress, setProgress] = useState(null);
-  const [status, setStatus] = useState(null);
+  const [dragging, setDragging]   = useState(false);
+  const [progress, setProgress]   = useState(null);
+  const [status, setStatus]       = useState(null);
+  const [unknowns, setUnknowns]   = useState(null);
+  const [logFormat, setLogFormat] = useState('');
+  // Aircraft picker step
+  const [pendingFile, setPendingFile]   = useState(null);
+  const [aircraft, setAircraft]         = useState([]);
+  const [aircraftLoading, setAircraftLoading] = useState(false);
+  const [selectedAc, setSelectedAc]     = useState('');
+  const [newAcName, setNewAcName]       = useState('');
+  const [newAcType, setNewAcType]       = useState('fixed_wing');
+  // Duplicate detection
+  const [duplicate, setDuplicate]       = useState(null);   // {existing: {...}, aircraftId, file}
+  const [pendingAircraftId, setPendingAircraftId] = useState(null);
   const inputRef = useRef();
   const { token } = useAuthStore();
 
-  const handle = async (file) => {
+  const openPicker = async (file) => {
     if (!file) return;
+    setPendingFile(file);
+    setSelectedAc('');
+    setNewAcName('');
+    setAircraftLoading(true);
+    try {
+      const r = await fetch('/api/v1/aircraft', { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      setAircraft(Array.isArray(d) ? d : []);
+    } catch { setAircraft([]); }
+    setAircraftLoading(false);
+  };
+
+  const doUpload = async (file, aircraftId, force = false) => {
     setProgress(0);
     setStatus({ type: 'uploading', msg: 'Uploading log file…' });
     try {
       const fd = new FormData();
       fd.append('log', file);
+      if (aircraftId) fd.append('aircraft_id', aircraftId);
+      if (force) fd.append('force_reimport', '1');
       const res = await fetch('/api/v1/flights', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
       });
       const json = await res.json();
+
+      // Duplicate detected — show confirmation modal
+      if (res.status === 409 && json.duplicate) {
+        setProgress(null);
+        setStatus(null);
+        setDuplicate({ existing: json.existing, file, aircraftId });
+        return;
+      }
+
       if (json.error) {
         setStatus({ type: 'error', msg: `Error: ${json.error}` });
         return;
       }
       setProgress(50);
+      setLogFormat(json.format || '');
       setStatus({ type: 'processing', msg: `Detected: ${json.format || 'unknown'} (${json.format_confidence || '?'}% confidence) — parsing…` });
       // Poll until parse_status is complete or error
       const flightId = json.flight_id;
       let attempts = 0;
+
+      const finishImport = (flight) => {
+        setProgress(100);
+        setStatus({ type: 'done', msg: `Import complete! ${flight.original_filename || file.name}` });
+        onUpload?.();
+        // Check for unknown keys in ai_analysis
+        const unknownKeys = flight.ai_analysis?.params?.unknown_keys;
+        if (Array.isArray(unknownKeys) && unknownKeys.length > 0) {
+          setTimeout(() => setUnknowns(unknownKeys), 800);
+        }
+      };
+
       const poll = async () => {
         const r = await fetch(`/api/v1/flights/${flightId}`, { headers: { Authorization: `Bearer ${token}` } });
         const f = await r.json();
         if (f.parse_status === 'complete') {
-          setProgress(100);
-          setStatus({ type: 'done', msg: `Import complete! ${f.original_filename}` });
-          onUpload?.();
+          finishImport(f);
         } else if (f.parse_status === 'error') {
           setStatus({ type: 'error', msg: `Parse error: ${f.parse_error || 'unknown'}` });
         } else if (attempts++ < 30) {
@@ -1160,9 +1391,7 @@ const UploadZone = ({ onUpload }) => {
         }
       };
       if (json.status === 'complete') {
-        setProgress(100);
-        setStatus({ type: 'done', msg: `Import complete! ${file.name}` });
-        onUpload?.();
+        finishImport({ original_filename: file.name, ai_analysis: json.ai_analysis });
       } else {
         setTimeout(poll, 1000);
       }
@@ -1171,14 +1400,165 @@ const UploadZone = ({ onUpload }) => {
     }
   };
 
+  const startUpload = async () => {
+    let aircraftId = null;
+    if (selectedAc === 'new') {
+      if (!newAcName.trim()) return;
+      try {
+        const r = await fetch('/api/v1/aircraft', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newAcName.trim(), type: newAcType }),
+        });
+        const j = await r.json();
+        aircraftId = j.id || null;
+      } catch { /* proceed without */ }
+    } else if (selectedAc) {
+      aircraftId = parseInt(selectedAc, 10);
+    }
+    const file = pendingFile;
+    setPendingFile(null);
+    await doUpload(file, aircraftId);
+  };
+
+  const handleDuplicateSkip = () => setDuplicate(null);
+  const handleDuplicateReimport = async () => {
+    const { file, aircraftId } = duplicate;
+    setDuplicate(null);
+    await doUpload(file, aircraftId, true);
+  };
+
+  const inp = { background: 'var(--bg-input)', border: '1px solid var(--border-input)', borderRadius: 8, padding: '9px 12px', fontSize: 13, color: 'var(--text-primary)', outline: 'none', width: '100%', boxSizing: 'border-box' };
+
   return (
+    <>
+    {unknowns && (
+      <UnknownKeysModal unknowns={unknowns} logFormat={logFormat} token={token} onDone={() => setUnknowns(null)} />
+    )}
+
+    {/* Duplicate detection modal */}
+    {duplicate && (
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-panel)', borderRadius: 16, padding: 28, width: '100%', maxWidth: 480 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <div style={{ width: 40, height: 40, background: '#F59E0B20', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <AlertTriangle size={20} color="#F59E0B" />
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-bright)' }}>Duplicate Flight Detected</div>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>This log file has already been imported</div>
+            </div>
+          </div>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px', marginBottom: 20 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Existing import:</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+              {duplicate.existing.display_name || duplicate.existing.original_filename}
+            </div>
+            <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-faint)' }}>
+              {duplicate.existing.flight_date && <span>{duplicate.existing.flight_date.slice(0,10)}</span>}
+              {duplicate.existing.log_format && <span style={{ color: '#F59E0B', textTransform: 'uppercase' }}>{duplicate.existing.log_format.replace(/_/g,' ')}</span>}
+              {duplicate.existing.duration_sec && <span>{Math.floor(duplicate.existing.duration_sec/60)}m {duplicate.existing.duration_sec%60}s</span>}
+            </div>
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>
+            What would you like to do?
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={handleDuplicateSkip}
+              style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', padding: '10px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+              Skip Import
+            </button>
+            <button onClick={handleDuplicateReimport}
+              style={{ flex: 1, background: '#EF4444', border: 'none', color: '#fff', padding: '10px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+              Delete &amp; Reimport
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Aircraft picker step */}
+    {pendingFile && (
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: 24, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+          <div style={{ width: 36, height: 36, background: 'rgba(59,130,246,0.15)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Plane size={18} color="#60A5FA" />
+          </div>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-bright)' }}>Which aircraft flew this mission?</div>
+            <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>{pendingFile.name}</div>
+          </div>
+        </div>
+
+        {aircraftLoading ? (
+          <div style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 16 }}>Loading fleet…</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+            {/* Skip option */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: `1px solid ${selectedAc === '' ? 'rgba(59,130,246,0.4)' : 'var(--border)'}`, background: selectedAc === '' ? 'rgba(59,130,246,0.08)' : 'var(--bg-input)', cursor: 'pointer' }}>
+              <input type="radio" name="ac" value="" checked={selectedAc === ''} onChange={() => setSelectedAc('')} style={{ accentColor: '#3B82F6' }} />
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Skip — don't assign an aircraft</span>
+            </label>
+
+            {/* Existing aircraft */}
+            {aircraft.map(ac => (
+              <label key={ac.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: `1px solid ${selectedAc === String(ac.id) ? 'rgba(59,130,246,0.4)' : 'var(--border)'}`, background: selectedAc === String(ac.id) ? 'rgba(59,130,246,0.08)' : 'var(--bg-input)', cursor: 'pointer' }}>
+                <input type="radio" name="ac" value={ac.id} checked={selectedAc === String(ac.id)} onChange={() => setSelectedAc(String(ac.id))} style={{ accentColor: '#3B82F6' }} />
+                <span style={{ fontSize: 20 }}>{AIRCRAFT_TYPES[ac.type]?.emoji || '✈'}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{ac.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{AIRCRAFT_TYPES[ac.type]?.label || ac.type}{ac.make ? ` · ${ac.make}` : ''}{ac.model ? ` ${ac.model}` : ''}</div>
+                </div>
+              </label>
+            ))}
+
+            {/* Create new */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: `1px solid ${selectedAc === 'new' ? 'rgba(16,185,129,0.4)' : 'var(--border)'}`, background: selectedAc === 'new' ? 'rgba(16,185,129,0.08)' : 'var(--bg-input)', cursor: 'pointer' }}>
+              <input type="radio" name="ac" value="new" checked={selectedAc === 'new'} onChange={() => setSelectedAc('new')} style={{ accentColor: '#10B981' }} />
+              <Plus size={16} color="#10B981" />
+              <span style={{ fontSize: 13, color: '#10B981', fontWeight: 600 }}>Create new aircraft</span>
+            </label>
+
+            {selectedAc === 'new' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4, padding: '12px 14px', background: 'rgba(16,185,129,0.05)', borderRadius: 10, border: '1px solid rgba(16,185,129,0.2)' }}>
+                <div style={{ gridColumn: '1/-1' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600 }}>NAME *</div>
+                  <input value={newAcName} onChange={e => setNewAcName(e.target.value)} placeholder="e.g. Sky Surveyor 01" style={inp} autoFocus />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600 }}>TYPE</div>
+                  <select value={newAcType} onChange={e => setNewAcType(e.target.value)} style={inp}>
+                    {Object.entries(AIRCRAFT_TYPES).map(([k, v]) => (
+                      <option key={k} value={k}>{v.emoji} {v.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={() => setPendingFile(null)} style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '9px 18px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>
+            Cancel
+          </button>
+          <button onClick={startUpload} disabled={selectedAc === 'new' && !newAcName.trim()}
+            style={{ background: '#3B82F6', border: 'none', color: '#fff', padding: '9px 22px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700, opacity: (selectedAc === 'new' && !newAcName.trim()) ? 0.4 : 1 }}>
+            Import Log
+          </button>
+        </div>
+      </div>
+    )}
+
+    {/* Drop zone — hidden while picking aircraft or uploading */}
+    {!pendingFile && (
     <div
       onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); handle(e.dataTransfer.files[0]); }}
-      onClick={() => inputRef.current.click()}
-      style={{ border: `2px dashed ${dragging ? '#3B82F6' : 'var(--border-tooltip)'}`, borderRadius: 16, padding: '40px 20px', textAlign: 'center', cursor: 'pointer', background: dragging ? 'rgba(59,130,246,0.05)' : 'var(--bg-card)', transition: 'all 0.2s' }}>
-      <input ref={inputRef} type="file" accept=".bin,.tlog,.ulg,.ulog,.csv,.txt,.log,.gpx,.kml,.kmz,.bbl,.bfl,.skylog" hidden onChange={(e) => handle(e.target.files[0])} />
+      onDrop={(e) => { e.preventDefault(); setDragging(false); openPicker(e.dataTransfer.files[0]); }}
+      onClick={() => !status && inputRef.current.click()}
+      style={{ border: `2px dashed ${dragging ? '#3B82F6' : 'var(--border-tooltip)'}`, borderRadius: 16, padding: '40px 20px', textAlign: 'center', cursor: status ? 'default' : 'pointer', background: dragging ? 'rgba(59,130,246,0.05)' : 'var(--bg-card)', transition: 'all 0.2s' }}>
+      <input ref={inputRef} type="file" accept=".bin,.tlog,.ulg,.ulog,.csv,.txt,.log,.gpx,.kml,.kmz,.bbl,.bfl,.skylog" hidden onChange={(e) => openPicker(e.target.files[0])} />
       <Upload size={36} color="#3B82F6" style={{ margin: '0 auto 12px' }} />
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>Drop flight log or click to browse</div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
@@ -1195,11 +1575,10 @@ const UploadZone = ({ onUpload }) => {
         </div>
       )}
     </div>
+    )}
+    </>
   );
 };
-
-// ── Auth Store (Zustand) ──────────────────────────────────────
-import { useAuthStore } from './store.js';
 
 // ── Flight List ───────────────────────────────────────────────
 const FlightList = ({ onSelect, refresh }) => {
@@ -1273,8 +1652,8 @@ const AuthScreen = () => {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-app)', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ width: 380, background: 'var(--bg-panel)', border: '1px solid var(--border-input)', borderRadius: 16, padding: 32 }}>
+    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-app)', alignItems: 'center', justifyContent: 'center', padding: '0 16px' }}>
+      <div className="auth-card">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }}>
           <div style={{ width: 36, height: 36, background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Plane size={20} color="white" />
@@ -1313,7 +1692,6 @@ const AuthScreen = () => {
   );
 };
 
-// ── Flight Edit Panel ─────────────────────────────────────────
 // ── Aircraft image cover + upload ────────────────────────────
 const AircraftImageUpload = ({ aircraft, token, onUpdated }) => {
   const [uploading, setUploading] = useState(false);
@@ -1897,10 +2275,23 @@ const FlightEditPanel = ({ flight, token, onClose, onSaved }) => {
   );
 };
 
-// ── Main App ──────────────────────────────────────────────────
+// ── Mobile breakpoint hook ────────────────────────────────────
+function useMobile() {
+  const mq = typeof window !== 'undefined' ? window.matchMedia('(max-width: 767px)') : null;
+  const [mobile, setMobile] = useState(mq ? mq.matches : false);
+  useEffect(() => {
+    if (!mq) return;
+    const handler = e => setMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return mobile;
+}
+
 export default function App() {
   const { isAuthenticated, user, logout, token } = useAuthStore();
   const { theme, setTheme } = useUIStore();
+  const isMobile = useMobile();
   const [modules, setModules] = useState(defaultModules);
   const [selectedFlight, setSelectedFlight] = useState(null);
   const [flightData, setFlightData] = useState(null);
@@ -1971,12 +2362,22 @@ export default function App() {
 
   const layout = themes[theme]?.layout || 'default';
 
+  const navTo = (key) => {
+    setView(key);
+    if (isMobile) setSidebarOpen(false);
+  };
+
   return (
     <>
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-app)', color: 'var(--text-primary)', fontFamily: layout === 'terminal' ? "'JetBrains Mono', 'Fira Code', monospace" : "'Inter', system-ui, sans-serif", overflow: 'hidden' }}>
+    <div className="app-shell" style={{ background: 'var(--bg-app)', color: 'var(--text-primary)', fontFamily: layout === 'terminal' ? "'JetBrains Mono', 'Fira Code', monospace" : "'Inter', system-ui, sans-serif" }}>
+
+      {/* Mobile backdrop */}
+      {isMobile && sidebarOpen && (
+        <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />
+      )}
 
       {/* Sidebar */}
-      <div style={{ width: sidebarOpen ? 260 : 0, minWidth: sidebarOpen ? 260 : 0, background: 'var(--bg-panel)', borderRight: '1px solid var(--border-panel)', overflow: 'hidden', transition: 'width 0.25s ease, min-width 0.25s ease', display: 'flex', flexDirection: 'column' }}>
+      <div className={`sidebar${sidebarOpen ? ' open' : ''}`}>
         <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1995,7 +2396,7 @@ export default function App() {
             { key: 'aircraft',  icon: Box,     label: 'My Fleet' },
             { key: 'settings',  icon: Settings,label: 'Settings' },
           ].map(item => (
-            <button key={item.key} onClick={() => setView(item.key)}
+            <button key={item.key} onClick={() => navTo(item.key)} className="nav-item"
               style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, background: view === item.key ? 'rgba(59,130,246,0.15)' : 'none', border: view === item.key ? '1px solid rgba(59,130,246,0.2)' : '1px solid transparent', color: view === item.key ? '#60A5FA' : 'var(--text-muted)', cursor: 'pointer', width: '100%', textAlign: 'left', fontSize: 13, fontWeight: 500, transition: 'all 0.15s' }}>
               <item.icon size={15} />
               {item.label}
@@ -2018,11 +2419,11 @@ export default function App() {
       </div>
 
       {/* Main content */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="main-content">
 
         {/* Topbar */}
-        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--bg-panel)' }}>
-          <button onClick={() => setSidebarOpen(s => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}>
+        <div className="topbar">
+          <button onClick={() => setSidebarOpen(s => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, minHeight: 36, display: 'flex', alignItems: 'center' }}>
             <Menu size={18} />
           </button>
           {view === 'flight' && selectedFlight && (
@@ -2063,11 +2464,11 @@ export default function App() {
         </div>
 
         {/* Content area */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+        <div className="content-scroll">
 
           {/* DASHBOARD VIEW */}
           {view === 'dashboard' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+            <div className="dash-grid">
               <DashboardStats totals={totals} byFormat={byFormat} />
 
               {/* Flight list */}
@@ -2215,24 +2616,24 @@ export default function App() {
 
               {/* Theme picker */}
               <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-tertiary)', marginBottom: 14 }}>Theme</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-tertiary)', marginBottom: 14 }}>Theme &amp; Layout</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
                   {Object.entries(themes).map(([key, t]) => (
                     <button key={key} onClick={() => setTheme(key)}
                       style={{ background: theme === key ? 'var(--accent-bg)' : 'var(--bg-input)', border: `2px solid ${theme === key ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10, padding: '12px 14px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s' }}>
-                      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                      <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
                         {t.preview.map((c, i) => (
-                          <div key={i} style={{ width: 22, height: 22, background: c, borderRadius: 5, border: '1px solid rgba(255,255,255,0.15)' }} />
+                          <div key={i} style={{ flex: 1, height: 18, background: c, borderRadius: 4, border: '1px solid rgba(255,255,255,0.12)' }} />
                         ))}
                       </div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: theme === key ? 'var(--accent)' : 'var(--text-primary)', marginBottom: 2 }}>{t.label}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{t.description}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: theme === key ? 'var(--accent)' : 'var(--text-primary)', marginBottom: 3 }}>{t.label}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-faint)', lineHeight: 1.4 }}>{t.description}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <button onClick={logout} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#EF444415', border: '1px solid #EF444430', color: '#EF4444', padding: '10px 20px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+              <button onClick={logout} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#EF444415', border: '1px solid #EF444430', color: '#EF4444', padding: '10px 20px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, marginTop: 16 }}>
                 <LogOut size={14} /> Sign Out
               </button>
             </div>

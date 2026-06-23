@@ -12,7 +12,7 @@ require_once __DIR__ . '/../parsers/skyline_parser.php';
 
 class FlightProcessor {
 
-    public function process(int $flightId, string $filePath, string $originalName): void {
+    public function process(int $flightId, string $filePath, string $originalName, int $userId = 0): void {
         // Update status to processing
         DB::query("UPDATE flights SET parse_status='processing' WHERE id=?", [$flightId]);
 
@@ -27,7 +27,7 @@ class FlightProcessor {
             ]);
 
             // Step 2: Parse the log file
-            $parsed = $this->parseFile($filePath, $analysis);
+            $parsed = $this->parseFile($filePath, $analysis, $userId);
 
             // Step 3: Downsample to TELEM_MAX_POINTS
             $gps     = $this->downsample($parsed['gps'],      TELEM_MAX_POINTS);
@@ -36,9 +36,10 @@ class FlightProcessor {
             $imu     = $this->downsample($parsed['imu'],       TELEM_MAX_POINTS);
             $rc      = $this->downsample($parsed['rc'],        TELEM_MAX_POINTS);
             $events  = $parsed['events'];
+            $camera  = $parsed['camera'] ?? [];
 
             // Step 4: Store telemetry in DB
-            $this->storeTelemetry($flightId, $gps, $att, $batt, $imu, $rc, $events);
+            $this->storeTelemetry($flightId, $gps, $att, $batt, $imu, $rc, $events, $camera);
 
             // Step 5: Compute flight summary stats
             $stats = $this->computeStats($gps, $batt, $events, $originalName);
@@ -85,7 +86,20 @@ class FlightProcessor {
         }
     }
 
-    private function parseFile(string $path, array $analysis): array {
+    private function parseFile(string $path, array $analysis, int $userId = 0): array {
+        if ($analysis['format'] === 'skyline_skylog') {
+            $parser = new SkylineParser();
+            if ($userId) {
+                $rows = DB::query(
+                    "SELECT raw_key, mapped_to FROM user_log_mappings WHERE user_id=? AND log_format='skyline_skylog'",
+                    [$userId]
+                )->fetchAll();
+                $mappings = [];
+                foreach ($rows as $r) $mappings[$r['raw_key']] = $r['mapped_to'];
+                $parser->setMappings($mappings);
+            }
+            return $parser->parse($path);
+        }
         return match($analysis['format']) {
             'ardupilot_bin'   => (new ArduPilotBinParser())->parse($path),
             'px4_ulog'        => (new PX4ULogParser())->parse($path),
@@ -97,13 +111,12 @@ class FlightProcessor {
             'dji_txt'         => $this->parseDJITxt($path),
             'kml','kmz'       => $this->parseKML($path),
             'ardupilot_text'  => $this->parseArduPilotText($path),
-            'skyline_skylog'  => (new SkylineParser())->parse($path),
             default           => $this->genericFallbackParse($path, $analysis),
         };
     }
 
     private function storeTelemetry(int $flightId, array $gps, array $att,
-                                     array $batt, array $imu, array $rc, array $events): void {
+                                     array $batt, array $imu, array $rc, array $events, array $camera = []): void {
         // Add flight_id to each row
         $addId = fn($rows) => array_map(fn($r) => ['flight_id' => $flightId] + $r, $rows);
 
@@ -113,6 +126,7 @@ class FlightProcessor {
         if ($imu)    DB::batchInsert('telemetry_imu',       $addId($imu));
         if ($rc)     DB::batchInsert('telemetry_rc',        $addId($rc));
         if ($events) DB::batchInsert('flight_events',       $addId($events));
+        if ($camera) DB::batchInsert('telemetry_camera',    $addId($camera));
     }
 
     private function computeStats(array $gps, array $batt, array $events, string $originalName = ''): array {

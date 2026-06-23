@@ -94,6 +94,11 @@ make logs                     # tail all containers
 make shell                    # bash into PHP/Apache container
 make db-shell                 # MySQL shell
 make rebuild-web              # force React rebuild (clears web_dist volume)
+```
+
+**IMPORTANT — Pi deployment:** Apache serves from volume `uavlogbook_web_dist`. Always build into that exact volume name or changes will be silently ignored:
+```bash
+docker run --rm -v uavlogbook_web_dist:/dist -v /home/james/uavlogbook_v3/web:/web node:20-alpine sh -c 'cd /web && npm ci --silent && npm run build -- --outDir /dist --emptyOutDir'
 make backup                   # dump DB to ./backups/
 make restore F=backups/x.sql  # restore DB
 ```

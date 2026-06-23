@@ -56,8 +56,13 @@ try {
         case 'GET:flights':
             $user = Auth::requireAuth();
             if ($id) {
+                // Telemetry sub-resources are immutable once parse_status=complete
+                if (in_array($sub, ['gps','attitude','battery','imu','events','camera'])) {
+                    header('Cache-Control: private, max-age=3600');
+                }
                 echo json_encode(getFlightDetail($user, $id, $sub));
             } else {
+                header('Cache-Control: private, max-age=30');
                 echo json_encode(listFlights($user));
             }
             break;
@@ -122,6 +127,7 @@ try {
         // ── Stats / Dashboard ─────────────────────────────────
         case 'GET:stats':
             $user = Auth::requireAuth();
+            header('Cache-Control: private, max-age=120');
             echo json_encode(getDashboardStats($user));
             break;
 
@@ -190,6 +196,20 @@ try {
         case 'DELETE:maintenance':
             $user = Auth::requireAuth();
             echo json_encode(deleteMaintenance($user, $id));
+            break;
+
+        // ── Log key mappings ──────────────────────────────────
+        case 'GET:log-mappings':
+            $user = Auth::requireAuth();
+            echo json_encode(listLogMappings($user));
+            break;
+        case 'POST:log-mappings':
+            $user = Auth::requireAuth();
+            echo json_encode(saveLogMapping($user, json_decode(file_get_contents('php://input'), true)));
+            break;
+        case 'DELETE:log-mappings':
+            $user = Auth::requireAuth();
+            echo json_encode(deleteLogMapping($user, $id));
             break;
 
         // ── Shared flights (public, no auth) ─────────────────
@@ -269,7 +289,7 @@ function listFlights(array $user): array {
     if ($format) { $where .= " AND log_format=?"; $params[] = $format; }
 
     $total = DB::query("SELECT COUNT(*) c FROM flights WHERE $where", $params)->fetchColumn();
-    $rows  = DB::query("SELECT id,uuid,original_filename,log_format,format_confidence,
+    $rows  = DB::query("SELECT id,uuid,original_filename,display_name,aircraft_id,log_format,format_confidence,
                         parse_status,flight_date,duration_sec,max_altitude_m,max_speed_ms,
                         max_distance_m,total_distance_m,home_lat,home_lng,min_battery_v,
                         warning_count,error_count,pilot_notes,tags,location_name,created_at
@@ -317,11 +337,15 @@ function getFlightDetail(array $user, int $id, string $sub): array {
             $flight['events'] = DB::query("SELECT t_ms,event_type,severity,value,description
                 FROM flight_events WHERE flight_id=? ORDER BY t_ms", [$id])->fetchAll();
             break;
+        case 'camera':
+            $flight['telemetry'] = DB::query("SELECT t_ms,seq,lat,lng,alt_m
+                FROM telemetry_camera WHERE flight_id=? ORDER BY seq", [$id])->fetchAll();
+            break;
         case '':
-            // Summary with first 100 GPS points for overview map
             $flight['gps_preview'] = DB::query("SELECT lat,lng,alt_m FROM telemetry_gps
-                WHERE flight_id=? ORDER BY t_ms", [$id])->fetchAll();
-            $flight['events'] = DB::query("SELECT * FROM flight_events WHERE flight_id=? ORDER BY t_ms", [$id])->fetchAll();
+                WHERE flight_id=? ORDER BY t_ms
+                LIMIT 500", [$id])->fetchAll();
+            $flight['events'] = DB::query("SELECT t_ms,event_type,severity,value,description FROM flight_events WHERE flight_id=? ORDER BY t_ms", [$id])->fetchAll();
             break;
     }
     return $flight;
@@ -346,12 +370,28 @@ function uploadFlight(array $user): array {
         return ['error' => 'Failed to store file'];
     }
 
-    $hash = hash_file('sha256', $storagePath);
+    $hash  = hash_file('sha256', $storagePath);
+    $force = !empty($_POST['force_reimport']);
+
     // Check duplicate
-    $dup = DB::query("SELECT id FROM flights WHERE user_id=? AND file_hash=?", [$user['sub'], $hash])->fetch();
-    if ($dup) {
+    $dup = DB::query(
+        "SELECT id, original_filename, display_name, flight_date, log_format, duration_sec
+         FROM flights WHERE user_id=? AND file_hash=?",
+        [$user['sub'], $hash]
+    )->fetch();
+
+    if ($dup && !$force) {
         unlink($storagePath);
-        return ['warning' => 'Duplicate flight detected', 'existing_id' => $dup['id']];
+        http_response_code(409);
+        return [
+            'duplicate' => true,
+            'existing'  => $dup,
+        ];
+    }
+
+    if ($dup && $force) {
+        // Delete the old flight (cascade handles telemetry/photos)
+        DB::query("DELETE FROM flights WHERE id=? AND user_id=?", [$dup['id'], $user['sub']]);
     }
 
     // Insert pending flight record
@@ -371,7 +411,7 @@ function uploadFlight(array $user): array {
     // Process asynchronously if possible, otherwise inline
     $processor = new FlightProcessor();
     try {
-        $processor->process($flightId, $storagePath, $file['name']);
+        $processor->process($flightId, $storagePath, $file['name'], $user['sub']);
         $flight = DB::query("SELECT * FROM flights WHERE id=?", [$flightId])->fetch();
         return ['success' => true, 'flight_id' => $flightId, 'status' => $flight['parse_status'],
                 'format' => $flight['log_format'], 'format_confidence' => $flight['format_confidence']];
@@ -516,6 +556,38 @@ function uploadAircraftImage(array $user, int $id): array {
     return ['success' => true, 'image_url' => $webPath];
 }
 
+// ── Log Key Mapping Handlers ──────────────────────────────────────
+function listLogMappings(array $user): array {
+    return DB::query(
+        "SELECT id, log_format, raw_key, mapped_to, label, created_at FROM user_log_mappings WHERE user_id=? ORDER BY log_format, raw_key",
+        [$user['sub']]
+    )->fetchAll();
+}
+
+function saveLogMapping(array $user, array $body): array {
+    $format  = trim($body['log_format'] ?? '');
+    $rawKey  = trim($body['raw_key']    ?? '');
+    $mappedTo = trim($body['mapped_to'] ?? '');
+    $label   = trim($body['label']      ?? '') ?: null;
+
+    if (!$format || !$rawKey || !$mappedTo) {
+        http_response_code(400); return ['error' => 'log_format, raw_key and mapped_to are required'];
+    }
+
+    DB::query(
+        "INSERT INTO user_log_mappings (user_id, log_format, raw_key, mapped_to, label)
+         VALUES (?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE mapped_to=VALUES(mapped_to), label=VALUES(label), updated_at=NOW()",
+        [$user['sub'], $format, $rawKey, $mappedTo, $label]
+    );
+    return ['success' => true];
+}
+
+function deleteLogMapping(array $user, int $id): array {
+    DB::query("DELETE FROM user_log_mappings WHERE id=? AND user_id=?", [$id, $user['sub']]);
+    return ['success' => true];
+}
+
 function listMaintenance(array $user, int $aircraftId): array {
     $ac = DB::query("SELECT id FROM aircraft WHERE id=? AND user_id=?", [$aircraftId, $user['sub']])->fetch();
     if (!$ac) { http_response_code(404); return ['error' => 'Aircraft not found']; }
@@ -634,7 +706,7 @@ function getSharedFlight(string $token): array {
     }
     DB::query("UPDATE share_tokens SET views=views+1 WHERE token=?", [$token]);
     $flight = DB::query("SELECT * FROM flights WHERE id=?", [$share['flight_id']])->fetch();
-    $flight['gps_preview'] = DB::query("SELECT lat,lng,alt_m FROM telemetry_gps WHERE flight_id=? ORDER BY t_ms", [$share['flight_id']])->fetchAll();
+    $flight['gps_preview'] = DB::query("SELECT lat,lng,alt_m FROM telemetry_gps WHERE flight_id=? ORDER BY t_ms LIMIT 500", [$share['flight_id']])->fetchAll();
     return $flight;
 }
 function createShareLink(array $user, int $id): array {
