@@ -1,5 +1,5 @@
 // ============================================================
-// UAVLogBook — FPV Video Sync Component
+// Flightlog — FPV Video Sync Component
 // Handles: video upload, auto-sync display, manual correction,
 //          synchronized playback with telemetry timeline.
 // ============================================================

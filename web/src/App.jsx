@@ -1,5 +1,5 @@
 ﻿// ============================================================
-// UAVLogBook — Main React Web Application
+// Flightlog — Main React Web Application
 // Full-featured UAV flight log analysis dashboard
 // ============================================================
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
@@ -1659,7 +1659,7 @@ const AuthScreen = () => {
             <Plane size={20} color="white" />
           </div>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-bright)' }}>UAVLogBook</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-bright)' }}>Flightlog</div>
             <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>Flight Analysis Platform</div>
           </div>
         </div>
@@ -2384,7 +2384,7 @@ export default function App() {
               <Plane size={18} color="white" />
             </div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-bright)', letterSpacing: '-0.02em' }}>UAVLogBook</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-bright)', letterSpacing: '-0.02em' }}>Flightlog</div>
               <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>Flight Analysis Platform</div>
             </div>
           </div>

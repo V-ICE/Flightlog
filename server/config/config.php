@@ -1,6 +1,6 @@
 <?php
 // ============================================================
-// UAVLogBook — Configuration
+// Flightlog — Configuration
 // Works for both cPanel hosting and Docker deployments.
 // Docker:  set UAVLOG_* environment variables in docker-compose.yml
 // cPanel:  create server/config/config.local.php (see INSTALL guide)

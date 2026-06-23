@@ -1,6 +1,6 @@
 <?php
 // ============================================================
-// UAVLogBook — Multi-Format Log Parsers
+// Flightlog — Multi-Format Log Parsers
 // Covers: PX4 ULog, DJI CSV, GPX, KML, Betaflight BBL,
 //         Generic CSV (AI-mapped), ArduPilot Text
 // ============================================================

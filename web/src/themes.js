@@ -1,4 +1,4 @@
-// UAVLogBook — UI Themes
+// Flightlog — UI Themes
 // Each theme defines CSS custom properties injected on the root element.
 
 // layout values: 'default' | 'hud' | 'terminal' | 'magazine'

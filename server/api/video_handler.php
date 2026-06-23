@@ -1,6 +1,6 @@
 <?php
 // ============================================================
-// UAVLogBook — Video Upload & Time-Sync Engine
+// Flightlog — Video Upload & Time-Sync Engine
 //
 // SYNC STRATEGY (in order of reliability):
 //

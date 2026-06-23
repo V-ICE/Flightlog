@@ -1,4 +1,4 @@
-# UAVLogBook — Docker Setup
+# Flightlog — Docker Setup
 
 ## Architecture
 

@@ -1,4 +1,4 @@
-// UAVLogBook Mobile — API Client + Auth Store
+// Flightlog Mobile — API Client + Auth Store
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';

@@ -1,4 +1,4 @@
-// UAVLogBook Mobile App — Main Application
+// Flightlog Mobile App — Main Application
 // React Native + Expo with full flight log viewing
 import React, { useEffect, useState } from 'react';
 import {
@@ -90,7 +90,7 @@ function LoginScreen({ navigation }) {
       <ScrollView contentContainerStyle={s.loginContainer}>
         <View style={s.loginLogo}>
           <Ionicons name="airplane" size={40} color={T.primary} />
-          <Text style={s.loginTitle}>UAVLogBook</Text>
+          <Text style={s.loginTitle}>Flightlog</Text>
           <Text style={s.loginSub}>Flight Analysis Platform</Text>
         </View>
 

@@ -1,6 +1,6 @@
 <?php
 // ============================================================
-// UAVLogBook — Flight Photo Upload Handler
+// Flightlog — Flight Photo Upload Handler
 // ============================================================
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../config/db.php';

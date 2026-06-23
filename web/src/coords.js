@@ -1,4 +1,4 @@
-// UAVLogBook — Coordinate format conversions
+// Flightlog — Coordinate format conversions
 // Supports: DD (decimal degrees), DMS, DDM, MGRS, UTM
 import * as mgrsLib from 'mgrs';
 

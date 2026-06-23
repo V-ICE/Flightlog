@@ -1,12 +1,12 @@
-UAVLogBook v1.2 — Quick Start
+Flightlog v1.2 — Quick Start
 ==============================
 
 DOCUMENTATION — all guides are in docs/
-  docs/UAVLogBook_Install_Guide.pdf          ← cPanel hosting
-  docs/UAVLogBook_Ubuntu_Docker_Install.pdf  ← Docker on Ubuntu (start here)
-  docs/UAVLogBook_PC_Docker_Install.pdf      ← Docker on Windows/macOS
-  docs/UAVLogBook_Docker_Install.pdf         ← Docker generic (all platforms)
-  docs/UAVLogBook_Synology_DS412_Docker.pdf  ← Docker on Synology DS412+
+  docs/Flightlog_Install_Guide.pdf          ← cPanel hosting
+  docs/Flightlog_Ubuntu_Docker_Install.pdf  ← Docker on Ubuntu (start here)
+  docs/Flightlog_PC_Docker_Install.pdf      ← Docker on Windows/macOS
+  docs/Flightlog_Docker_Install.pdf         ← Docker generic (all platforms)
+  docs/Flightlog_Synology_DS412_Docker.pdf  ← Docker on Synology DS412+
   docs/DS412_RAM_Upgrade_Guide.pdf           ← DS412+ RAM upgrade guide
 
 FASTEST START (Ubuntu with Docker):

@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "UAVLogBook",
-    "slug": "uavlogbook",
+    "name": "Flightlog",
+    "slug": "flightlog",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -13,9 +13,9 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.uavlogbook.app",
+      "bundleIdentifier": "com.vice.flightlog",
       "infoPlist": {
-        "NSDocumentPickerDescription": "UAVLogBook needs access to your flight log files",
+        "NSDocumentPickerDescription": "Flightlog needs access to your flight log files",
         "UIFileSharingEnabled": true,
         "LSSupportsOpeningDocumentsInPlace": true
       }
@@ -25,7 +25,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#060D1A"
       },
-      "package": "com.uavlogbook.app",
+      "package": "com.vice.flightlog",
       "permissions": ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"]
     },
     "web": {
@@ -42,7 +42,7 @@
         }
       ]
     ],
-    "scheme": "uavlogbook",
+    "scheme": "flightlog",
     "extra": {
       "eas": { "projectId": "YOUR_EAS_PROJECT_ID" }
     }

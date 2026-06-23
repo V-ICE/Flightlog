@@ -1,4 +1,4 @@
-// UAVLogBook — Global State Store (Zustand)
+// Flightlog — Global State Store (Zustand)
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 

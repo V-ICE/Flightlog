@@ -1,6 +1,6 @@
 <?php
 // ============================================================
-// UAVLogBook — REST API Router
+// Flightlog — REST API Router
 // Deploy to: public_html/api/index.php
 // All requests proxied through .htaccess
 // ============================================================

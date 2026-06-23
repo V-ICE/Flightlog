@@ -1,6 +1,6 @@
 <?php
 // ============================================================
-// UAVLogBook — Flight Log Processor
+// Flightlog — Flight Log Processor
 // Orchestrates: AI detect → parse → store → summarize
 // ============================================================
 require_once __DIR__ . '/../config/config.php';

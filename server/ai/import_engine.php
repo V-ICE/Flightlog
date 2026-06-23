@@ -1,6 +1,6 @@
 <?php
 // ============================================================
-// UAVLogBook — AI Import Engine
+// Flightlog — AI Import Engine
 // Uses Claude AI to analyze unknown log files, detect format,
 // map columns, and orchestrate the correct parser.
 // ============================================================

@@ -1,5 +1,5 @@
 <?php
-// UAVLogBook — JWT Authentication Middleware
+// Flightlog — JWT Authentication Middleware
 require_once __DIR__ . '/../config/config.php';
 
 class Auth {

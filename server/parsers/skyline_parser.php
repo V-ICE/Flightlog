@@ -1,6 +1,6 @@
 <?php
 // ============================================================
-// UAVLogBook — Skyline .skylog Parser
+// Flightlog — Skyline .skylog Parser
 //
 // Format: Skyline ground control / telemetry system
 // Extension: .skylog

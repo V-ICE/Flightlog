@@ -1,6 +1,6 @@
 <?php
 // ============================================================
-// UAVLogBook — ArduPilot DataFlash Binary (.BIN) Parser
+// Flightlog — ArduPilot DataFlash Binary (.BIN) Parser
 // Self-describing binary format: FMT messages define all others
 // ============================================================
 

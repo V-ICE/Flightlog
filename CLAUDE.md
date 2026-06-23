@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture
 
-UAVLogBook is a full-stack UAV flight log platform with three separate apps sharing one PHP REST API:
+Flightlog is a full-stack UAV flight log platform with three separate apps sharing one PHP REST API:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
