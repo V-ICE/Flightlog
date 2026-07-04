@@ -5,6 +5,13 @@ Format: `v<major>.<minor>.<patch>` — patch for fixes, minor for features, majo
 
 ---
 
+## [v1.2.2] — 2026-07-04
+
+### Fixed
+- Skyline parser: removed TLM subtype whitelist `[0x2C, 0x28, 0x29]` that was discarding all packets after ~248s into a flight. All subtypes carry GPS at the same byte offsets (12-19); the existing coordinate sanity checks filter junk. A 52-min flight was being recorded as 4 min.
+
+---
+
 ## [v1.2.1] — 2026-06-23
 
 ### Changed
