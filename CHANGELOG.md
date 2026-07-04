@@ -5,6 +5,14 @@ Format: `v<major>.<minor>.<patch>` — patch for fixes, minor for features, majo
 
 ---
 
+## [v1.2.3] — 2026-07-04
+
+### Fixed
+- Skyline parser: restrict altitude/speed extraction to 0x2x subtype family only. Subtypes 0x3x/0x5x have GPS at the same byte offsets but carry different data at bytes 4-9, producing bogus speeds (87–95 m/s) when mistakenly parsed as alt/speed.
+- Takeoff detection: accept altitude-only evidence when `speed_ms` is null (i.e. packet type doesn't carry speed). Previously speed cast to 0.0 always failed the speed threshold, leaving `takeoff_ms = NULL` for flights dominated by non-speed packet types.
+
+---
+
 ## [v1.2.2] — 2026-07-04
 
 ### Fixed

@@ -218,8 +218,10 @@ class FlightProcessor {
         $streakStart = null;
         foreach ($gps as $pt) {
             $alt = (float)($pt['alt_m'] ?? 0);
+            $hasSpd = ($pt['speed_ms'] ?? null) !== null;
             $spd = (float)($pt['speed_ms'] ?? 0);
-            if ($alt > $altThreshold && $spd > $spdThreshold) {
+            // Accept altitude-only when speed_ms was not in this packet type
+            if ($alt > $altThreshold && (!$hasSpd || $spd > $spdThreshold)) {
                 if ($streak === 0) $streakStart = $pt['t_ms'];
                 $streak++;
                 if ($streak >= 3) { $takeoffMs = $streakStart; break; }

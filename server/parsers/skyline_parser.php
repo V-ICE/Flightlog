@@ -331,9 +331,13 @@ class SkylineParser {
 
         $tMs = $this->tMs();
 
-        // Altitude and speed: valid ONLY when byte[5] < 128 (high bit clear)
-        // When byte[5] >= 128, bytes 4-11 contain a different data structure
-        $hasAltSpeed = $bytes[5] < 128;
+        $subtype = $bytes[3];
+
+        // Altitude and speed: only valid for 0x2x subtype family (0x28/0x29/0x2C/0x2D etc.)
+        // Other families (0x3x, 0x5x) have GPS at the same offsets but bytes 4-9 carry
+        // different data — reading them as alt/speed produces bogus values (e.g. 95 m/s).
+        // Within 0x2x: byte[5] high-bit distinguishes alt/speed-valid packets from others.
+        $hasAltSpeed = ($subtype & 0xF0) === 0x20 && $bytes[5] < 128;
 
         $altRelM  = null;
         $altAslM  = null;
