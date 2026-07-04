@@ -321,11 +321,6 @@ class SkylineParser {
         $bytes = array_values(unpack('C*', $d));
         if ($bytes[0] !== 0xAA) return;  // magic check
 
-        $subtype = $bytes[3];
-
-        // Only subtypes carrying GPS and altitude data
-        if (!in_array($subtype, [0x2C, 0x28, 0x29])) return;
-
         // Latitude and longitude (always at offset 12/16)
         $lat = unpack('l', substr($d, 12, 4))[1] / 1e7;
         $lng = unpack('l', substr($d, 16, 4))[1] / 1e7;
