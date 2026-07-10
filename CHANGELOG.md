@@ -5,11 +5,13 @@ Format: `v<major>.<minor>.<patch>` — patch for fixes, minor for features, majo
 
 ---
 
-## [v1.2.3] — 2026-07-04
+## [v1.2.4] — 2026-07-04
 
 ### Fixed
-- Skyline parser: restrict altitude/speed extraction to 0x2x subtype family only. Subtypes 0x3x/0x5x have GPS at the same byte offsets but carry different data at bytes 4-9, producing bogus speeds (87–95 m/s) when mistakenly parsed as alt/speed.
-- Takeoff detection: accept altitude-only evidence when `speed_ms` is null (i.e. packet type doesn't carry speed). Previously speed cast to 0.0 always failed the speed threshold, leaving `takeoff_ms = NULL` for flights dominated by non-speed packet types.
+- Skyline parser: speed is no longer decoded from TLM packet bytes. Empirical analysis across 5 log files showed that bytes[8:9] encoding varies by subtype in ways that cannot be reliably distinguished — the same byte offsets produce valid speeds (~17 m/s) in some packets and physically impossible values (85–330 m/s) in others within the same subtype family. Speed is now computed from consecutive GPS position deltas using haversine, giving accurate ground speed for all subtypes.
+- Skyline parser: altitude extraction (bytes[4:5] when byte[5]<128) is now applied to all subtypes, not just 0x2x. Empirical analysis confirmed the encoding is consistent across 0x2x/0x3x/0x5x families.
+- Skyline parser: `ref_set` parsing now handles the newer 10-field firmware format (previously only 6-field format matched). First `ref_set` entry is used as home altitude when no `{home:}` block is present — fixes missing ASL altitude in newer firmware logs.
+- Takeoff detection: accept altitude-only evidence when `speed_ms` is null. Previously null speed cast to 0.0 always failed the speed threshold, leaving `takeoff_ms = NULL`.
 
 ---
 

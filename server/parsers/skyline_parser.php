@@ -23,16 +23,17 @@
 //   Packet structure:
 //     Byte  0:     0xAA magic marker
 //     Bytes 1-3:   rolling counter (uint24 LE)
-//     Byte  3:     packet subtype (0x2C, 0x28, 0x29 carry GPS)
+//     Byte  3:     packet subtype (ALL subtypes carry GPS at offsets 12-19)
 //     Bytes 4-5:   int16 LE = relative altitude in cm (above home)
-//                  ONLY valid when byte[5] < 128 (high bit clear)
-//     Bytes 6-7:   int16 LE = heading/bearing data
-//     Bytes 8-9:   int16 LE = ground speed in cm/s
-//                  ONLY valid when byte[5] < 128
-//     Bytes 10-11: int16 LE = vertical speed or bearing
-//     Bytes 12-15: int32 LE = latitude  * 1e7 (degrees)
-//     Bytes 16-19: int32 LE = longitude * 1e7 (degrees)
-//     Bytes 20-27: CRC / additional encoded data
+//                  ONLY valid when byte[5] < 128 (high bit clear).
+//                  Works across all subtype families (0x2x, 0x3x, 0x5x).
+//     Bytes 6-11:  subtype-dependent payload (cannot be reliably decoded)
+//                  DO NOT parse speed from bytes 8-9: the encoding varies
+//                  per subtype in ways that produce 85-300 m/s bogus values.
+//                  Speed is computed from consecutive GPS position deltas.
+//     Bytes 12-15: int32 LE = latitude  * 1e7 (degrees) — all subtypes
+//     Bytes 16-19: int32 LE = longitude * 1e7 (degrees) — all subtypes
+//     Bytes 20-27: additional data (subtype-dependent)
 //
 // BATTERY:
 //   {vbatt:[raw_int, amps_float]}
@@ -65,7 +66,9 @@
 //   severity: 1=Emergency, 2=Alert, 3=Critical, 4=Error, 5=Warning, 6=Info
 //
 // REF_SET (reference/waypoint points):
-//   {ref_set:[id, alt_m, lat, lng, reserved, active_flag]}
+//   {ref_set:[id, alt_m, lat, lng, reserved, active_flag]}          ← older firmware (6 fields)
+//   {ref_set:[id, alt_m, lat, lng, reserved, active_flag,0,0,0,0]}  ← newer firmware (10 fields)
+//   First ref_set is used as home altitude when no {home:} block is present.
 //
 // GIMBAL:
 //   {gimbal:"aabbccdd"}   -- 4 bytes
@@ -241,15 +244,24 @@ class SkylineParser {
             return;
         }
 
-        // ── Reference waypoints: {ref_set:[id,alt,lat,lng,_,flag]} ─
-        if (preg_match('/^\{ref_set:\[(\d+),([\d.]+),([\d.]+),([\d.]+),([\d.]+),(\d+)\]\}$/', $line, $m)) {
-            $this->waypoints[] = [
-                'id'     => (int)$m[1],
-                'alt_m'  => (float)$m[2],
-                'lat'    => (float)$m[3],
-                'lng'    => (float)$m[4],
-                'active' => (int)$m[6] === 1,
-            ];
+        // ── Reference waypoints: {ref_set:[id,alt,lat,lng,_,flag,...]} ─
+        // Older firmware: 6 fields [id,alt,lat,lng,reserved,flag]
+        // Newer firmware: 10 fields [id,alt,lat,lng,reserved,flag,0,0,0,0]
+        if (preg_match('/^\{ref_set:\[([^\]]+)\]\}$/', $line, $m)) {
+            $vals = array_map('floatval', explode(',', $m[1]));
+            if (count($vals) >= 4 && abs($vals[2]) > 0.5 && abs($vals[3]) > 0.5) {
+                $this->waypoints[] = [
+                    'id'     => (int)$vals[0],
+                    'alt_m'  => $vals[1],
+                    'lat'    => $vals[2],
+                    'lng'    => $vals[3],
+                    'active' => isset($vals[5]) && (int)$vals[5] === 1,
+                ];
+                // Use first ref_set as home altitude when no {home:} block is present
+                if ($this->homeAltMm === 0 && $vals[1] > 0) {
+                    $this->homeAltMm = (int)round($vals[1] * 1000);
+                }
+            }
             return;
         }
 
@@ -314,63 +326,83 @@ class SkylineParser {
     }
 
     // ── TLM Binary Packet Decoder ─────────────────────────────────
+    //
+    // Packet structure (all subtypes share this layout):
+    //   Byte  0:     0xAA magic
+    //   Bytes 1-2:   rolling counter
+    //   Byte  3:     subtype
+    //   Bytes 4-5:   int16 LE = relative altitude in cm, ONLY when byte[5] < 128
+    //   Bytes 6-11:  subtype-dependent (do not decode)
+    //   Bytes 12-15: int32 LE = latitude  × 1e7 (all subtypes)
+    //   Bytes 16-19: int32 LE = longitude × 1e7 (all subtypes)
+    //
+    // Speed is NOT decoded from packet bytes — the byte[8:9] encoding varies by
+    // subtype in ways that cannot be reliably distinguished. Instead, speed_ms is
+    // computed from consecutive GPS position deltas in computeSpeeds().
     private function parseTlm(string $hex): void {
         $d = hex2bin($hex);
         if (strlen($d) < 20) return;
 
         $bytes = array_values(unpack('C*', $d));
-        if ($bytes[0] !== 0xAA) return;  // magic check
+        if ($bytes[0] !== 0xAA) return;
 
-        // Latitude and longitude (always at offset 12/16)
+        // GPS coordinates — valid across all subtypes
         $lat = unpack('l', substr($d, 12, 4))[1] / 1e7;
         $lng = unpack('l', substr($d, 16, 4))[1] / 1e7;
-
-        // Sanity check GPS coords
         if (abs($lat) < 0.5 || abs($lng) < 0.5) return;
         if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) return;
 
-        $tMs = $this->tMs();
-
-        $subtype = $bytes[3];
-
-        // Altitude and speed: only valid for 0x2x subtype family (0x28/0x29/0x2C/0x2D etc.)
-        // Other families (0x3x, 0x5x) have GPS at the same offsets but bytes 4-9 carry
-        // different data — reading them as alt/speed produces bogus values (e.g. 95 m/s).
-        // Within 0x2x: byte[5] high-bit distinguishes alt/speed-valid packets from others.
-        $hasAltSpeed = ($subtype & 0xF0) === 0x20 && $bytes[5] < 128;
-
-        $altRelM  = null;
-        $altAslM  = null;
-        $speedMs  = null;
-
-        if ($hasAltSpeed) {
-            $relAltCm = unpack('s', substr($d, 4, 2))[1];  // signed int16 LE
-            $spdCms   = unpack('s', substr($d, 8, 2))[1];  // signed int16 LE
-
-            // Sanity bounds: relative altitude -1000m to +5000m, speed 0-100 m/s
-            if ($relAltCm > -100000 && $relAltCm < 500000) {
+        // Relative altitude — bytes[4:5] as signed int16, only when byte[5] high bit clear
+        $altRelM = null;
+        $altAslM = null;
+        if ($bytes[5] < 128) {
+            $relAltCm = unpack('s', substr($d, 4, 2))[1];
+            if ($relAltCm > -10000 && $relAltCm < 50000) {
                 $altRelM = round($relAltCm / 100.0, 2);
                 $altAslM = $this->homeAltMm > 0
                     ? round(($this->homeAltMm / 1000.0) + $altRelM, 2)
-                    : $altRelM;
-            }
-            if ($spdCms >= 0 && $spdCms <= 10000) {
-                $speedMs = round($spdCms / 100.0, 2);
+                    : null;
             }
         }
 
         $this->gps[] = [
-            't_ms'      => $tMs,
-            'lat'       => round($lat, 7),
-            'lng'       => round($lng, 7),
-            'alt_m'     => $altRelM,       // relative to home
-            'alt_amsl_m'=> $altAslM,       // above mean sea level
-            'speed_ms'  => $speedMs,
-            'hdop'      => null,
-            'sats'      => null,
-            'fix_type'  => 3,              // assume 3D fix if we have coords
+            't_ms'          => $this->tMs(),
+            'lat'           => round($lat, 7),
+            'lng'           => round($lng, 7),
+            'alt_m'         => $altRelM,
+            'alt_amsl_m'    => $altAslM,
+            'speed_ms'      => null,   // filled by computeSpeeds()
+            'hdop'          => null,
+            'sats'          => null,
+            'fix_type'      => 3,
             'ground_course' => null,
         ];
+    }
+
+    // ── GPS-derived speed ─────────────────────────────────────────
+    private function computeSpeeds(): void {
+        $n = count($this->gps);
+        for ($i = 1; $i < $n; $i++) {
+            $dt = ($this->gps[$i]['t_ms'] - $this->gps[$i - 1]['t_ms']) / 1000.0;
+            if ($dt <= 0 || $dt > 5.0) continue;   // skip gaps / duplicate timestamps
+            $dist = $this->haversineM(
+                $this->gps[$i - 1]['lat'], $this->gps[$i - 1]['lng'],
+                $this->gps[$i]['lat'],     $this->gps[$i]['lng']
+            );
+            $spd = $dist / $dt;
+            if ($spd <= 200.0) {   // discard physically impossible values
+                $this->gps[$i]['speed_ms'] = round($spd, 2);
+            }
+        }
+    }
+
+    private function haversineM(float $lat1, float $lng1, float $lat2, float $lng2): float {
+        $R    = 6371000.0;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLng = deg2rad($lng2 - $lng1);
+        $a    = sin($dLat / 2) ** 2
+              + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
+        return $R * 2.0 * asin(min(1.0, sqrt($a)));
     }
 
     // ── Monitor Packet Decoder ────────────────────────────────────
@@ -494,6 +526,8 @@ class SkylineParser {
     }
 
     private function buildResult(): array {
+        $this->computeSpeeds();
+
         // Add firmware version / vehicle info as events
         if ($this->firmwareVer) {
             array_unshift($this->events, [

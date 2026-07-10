@@ -1,6 +1,6 @@
 {
   "name": "uavlogbook-web",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "private": true,
   "dependencies": {
     "react": "^18.3.0",
