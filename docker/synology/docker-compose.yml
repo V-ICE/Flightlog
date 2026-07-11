@@ -1,27 +1,27 @@
 ################################################################################
-# UAVLogBook — Synology DS412+ Docker Compose
+# Flightlog — Synology Docker Compose
 #
 # DESIGNED FOR:
-#   Synology DS412+ · DSM 6.2 · Docker package 20.10.3
+#   Synology NAS · DSM 6.2+ · Docker / Container Manager
 #   Kernel 3.10.x · x86_64 · docker-compose v1 (hyphen, NOT space)
 #
 # IMPORTANT DIFFERENCES FROM GENERIC DOCKER SETUP:
-#   - Uses Compose version '2' (not '3') — required for DSM 6.2
+#   - Uses Compose version '2' (not '3') — required for DSM 6.x
 #   - Uses mariadb:10.6 instead of mysql:8.0 (tested on kernel 3.10)
-#   - Uses php:7.4-apache instead of php:8.2 (glibc compatible with DSM 6.2)
+#   - Uses php:7.4-apache instead of php:8.2 (glibc compatible with older kernels)
 #   - No 'service_completed_successfully' — Compose v1 does not support it
 #   - No 'profiles' — Compose v1 does not support them
 #   - No Nginx — Apache handles everything directly
-#   - Volumes stored under /volume1/docker/ — Synology convention
-#   - Web app is pre-built; place dist/ files in synology/www/ before starting
+#   - Volumes stored under /volume1/docker/flightlog/ — Synology convention
+#   - Web app is pre-built; place dist/ files in www/ before starting
 #   - Run with: docker-compose up -d  (hyphen, not space)
 #
 # HOW TO RUN:
-#   1. SSH into Synology:  ssh admin@192.168.1.x
-#   2. cd /volume1/docker/uavlogbook
+#   1. SSH into Synology:  ssh admin@192.168.0.2
+#   2. cd /volume1/docker/flightlog
 #   3. docker-compose up -d
 #   4. Wait ~2 minutes for MariaDB to initialise
-#   5. Open http://your-nas-ip:8080
+#   5. Open http://192.168.0.2:8080
 #
 ################################################################################
 
@@ -43,9 +43,9 @@ services:
       MYSQL_COLLATION_SERVER:     utf8mb4_unicode_ci
     volumes:
       # Database files — persisted on NAS disk
-      - /volume1/docker/uavlogbook/db:/var/lib/mysql
+      - /volume1/docker/flightlog/db:/var/lib/mysql
       # Schema auto-imported on first run (only runs when db/ is empty)
-      - /volume1/docker/uavlogbook/init:/docker-entrypoint-initdb.d:ro
+      - /volume1/docker/flightlog/init:/docker-entrypoint-initdb.d:ro
     # MariaDB tuned for Atom D2700 + limited RAM
     command: >
       --character-set-server=utf8mb4
@@ -84,12 +84,12 @@ services:
       PHP_MAX_EXECUTION_TIME: 600
     volumes:
       # PHP source code
-      - /volume1/docker/uavlogbook/server:/var/www/html/api:ro
+      - /volume1/docker/flightlog/server:/var/www/html/api:ro
       # Built React web app — copy your web/dist/ contents here
-      - /volume1/docker/uavlogbook/www:/var/www/html:ro
+      - /volume1/docker/flightlog/www:/var/www/html:ro
       # Uploads — persistent, writable
-      - /volume1/docker/uavlogbook/uploads/logs:/var/www/uploads/logs
-      - /volume1/docker/uavlogbook/uploads/videos:/var/www/uploads/videos
+      - /volume1/docker/flightlog/uploads/logs:/var/www/uploads/logs
+      - /volume1/docker/flightlog/uploads/videos:/var/www/uploads/videos
     ports:
       - "${APP_PORT:-8080}:80"
     networks:
