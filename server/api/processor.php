@@ -100,19 +100,18 @@ class FlightProcessor {
             }
             return $parser->parse($path);
         }
-        return match($analysis['format']) {
-            'ardupilot_bin'   => (new ArduPilotBinParser())->parse($path),
-            'px4_ulog'        => (new PX4ULogParser())->parse($path),
-            'dji_csv','litchi_csv','generic_csv'
-                              => (new DJICsvParser())->parse($path, $analysis['column_map'] ?? []),
-            'gpx'             => (new GPXParser())->parse($path),
-            'betaflight_bbl','inav_bbl'
-                              => (new BetaflightBblParser())->parse($path),
-            'dji_txt'         => $this->parseDJITxt($path),
-            'kml','kmz'       => $this->parseKML($path),
-            'ardupilot_text'  => $this->parseArduPilotText($path),
-            default           => $this->genericFallbackParse($path, $analysis),
-        };
+        $fmt = $analysis['format'];
+        if ($fmt === 'ardupilot_bin')   return (new ArduPilotBinParser())->parse($path);
+        if ($fmt === 'px4_ulog')        return (new PX4ULogParser())->parse($path);
+        if (in_array($fmt, ['dji_csv','litchi_csv','generic_csv']))
+                                        return (new DJICsvParser())->parse($path, $analysis['column_map'] ?? []);
+        if ($fmt === 'gpx')             return (new GPXParser())->parse($path);
+        if (in_array($fmt, ['betaflight_bbl','inav_bbl']))
+                                        return (new BetaflightBblParser())->parse($path);
+        if ($fmt === 'dji_txt')         return $this->parseDJITxt($path);
+        if (in_array($fmt, ['kml','kmz'])) return $this->parseKML($path);
+        if ($fmt === 'ardupilot_text')  return $this->parseArduPilotText($path);
+        return $this->genericFallbackParse($path, $analysis);
     }
 
     private function storeTelemetry(int $flightId, array $gps, array $att,

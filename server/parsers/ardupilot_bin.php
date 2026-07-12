@@ -199,11 +199,8 @@ class ArduPilotBinParser {
 
             case 'EV':
                 $evId = $fields['Id'] ?? $fields['EV'] ?? 0;
-                $evName = match((int)$evId) {
-                    10 => 'armed', 11 => 'disarmed', 15 => 'auto_armed',
-                    16 => 'takeoff', 18 => 'land_complete', 25 => 'failsafe_radio',
-                    default => "event_$evId"
-                };
+                $evMap = [10=>'armed',11=>'disarmed',15=>'auto_armed',16=>'takeoff',18=>'land_complete',25=>'failsafe_radio'];
+                $evName = $evMap[(int)$evId] ?? "event_$evId";
                 $this->events[] = [
                     't_ms'       => $tMs,
                     'event_type' => $evName,

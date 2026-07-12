@@ -187,12 +187,10 @@ class SkylineParser {
         if (preg_match('/^\{statustext:\[(\d+),"([^"]+)"\]\}$/', $line, $m)) {
             $sev = (int)$m[1];
             $msg = $m[2];
-            $severity = match(true) {
-                $sev <= 3 => 'critical',
-                $sev == 4 => 'error',
-                $sev == 5 => 'warning',
-                default   => 'info',
-            };
+            if ($sev <= 3)      $severity = 'critical';
+            elseif ($sev == 4)  $severity = 'error';
+            elseif ($sev == 5)  $severity = 'warning';
+            else                $severity = 'info';
             // Detect camera shutter: "Relay 2 High" (any case/spacing)
             if (preg_match('/relay\s*2\s*high/i', $msg)) {
                 $this->camera[] = ['t_ms' => $this->tMs()];

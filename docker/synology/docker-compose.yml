@@ -83,8 +83,8 @@ services:
       PHP_POST_MAX_SIZE:   8192M
       PHP_MAX_EXECUTION_TIME: 600
     volumes:
-      # PHP source code
-      - /volume1/docker/flightlog/server:/var/www/html/api:ro
+      # PHP source code — must NOT be under /var/www/html (read-only parent prevents subdir creation)
+      - /volume1/docker/flightlog/server:/var/www/api:ro
       # Built React web app — copy your web/dist/ contents here
       - /volume1/docker/flightlog/www:/var/www/html:ro
       # Uploads — persistent, writable

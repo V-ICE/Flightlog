@@ -128,15 +128,13 @@ class PX4ULogParser {
     }
 
     private function ulogType(string $t): array {
-        return match($t) {
-            'uint64_t','int64_t' => ['P', 8],
-            'uint32_t','int32_t' => ['L', 4],
-            'uint16_t','int16_t' => ['S', 2],
-            'uint8_t','int8_t','bool' => ['C', 1],
-            'float'  => ['f', 4],
-            'double' => ['d', 8],
-            default  => ['C', 1],
-        };
+        if (in_array($t, ['uint64_t','int64_t']))       return ['P', 8];
+        if (in_array($t, ['uint32_t','int32_t']))       return ['L', 4];
+        if (in_array($t, ['uint16_t','int16_t']))       return ['S', 2];
+        if (in_array($t, ['uint8_t','int8_t','bool']))  return ['C', 1];
+        if ($t === 'float')  return ['f', 4];
+        if ($t === 'double') return ['d', 8];
+        return ['C', 1];
     }
 
     private static function quatToEuler(float $w, float $x, float $y, float $z): array {

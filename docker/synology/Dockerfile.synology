@@ -11,12 +11,16 @@
 #          compatible with MariaDB 10.6 — no code changes needed.
 # ============================================================
 
+# Bullseye (Apache 2.4.56) calls getrandom() (Linux 3.17+) which doesn't exist on
+# Synology kernel 3.10 → AH00141 crash. We fix this with an LD_PRELOAD shim that
+# intercepts the glibc getrandom() wrapper and redirects to /dev/urandom.
 FROM php:7.4-apache
 
 LABEL description="UAVLogBook for Synology DS412+ DSM 6.2"
 
 # System packages — keep minimal for the Atom D2700
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
     libpng-dev \
     libjpeg-dev \
     libwebp-dev \
@@ -38,6 +42,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         bcmath \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# getrandom() shim — intercepts the glibc wrapper on kernels < 3.17 (Synology 3.10.105)
+# so Apache never sees ENOSYS from the getrandom syscall.
+COPY getrandom_shim.c /tmp/getrandom_shim.c
+RUN gcc -shared -fPIC -o /usr/local/lib/getrandom_shim.so /tmp/getrandom_shim.c \
+ && echo '/usr/local/lib/getrandom_shim.so' > /etc/ld.so.preload \
+ && rm /tmp/getrandom_shim.c
 
 # NOTE: ffmpeg is intentionally omitted — too large for the DS412+ and
 # the PHP pure-MP4-atom parser handles video metadata without it.
