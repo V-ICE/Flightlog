@@ -55,7 +55,8 @@ RUN gcc -shared -fPIC -o /usr/local/lib/getrandom_shim.so /tmp/getrandom_shim.c 
 # Video thumbnails will simply not be generated (no functional impact).
 
 # Enable Apache modules
-RUN a2enmod rewrite headers expires deflate
+RUN a2enmod rewrite headers expires deflate \
+ && echo 'ServerName localhost' >> /etc/apache2/apache2.conf
 
 # PHP runtime config
 RUN echo "upload_max_filesize = 8192M"   >> /usr/local/etc/php/conf.d/uavlogbook.ini \
