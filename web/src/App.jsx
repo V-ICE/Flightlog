@@ -1297,6 +1297,9 @@ const UnknownKeysModal = ({ unknowns, logFormat, token, onDone }) => {
   );
 };
 
+const LOG_EXTENSIONS = new Set(['.bin','.tlog','.ulg','.ulog','.csv','.txt','.log','.gpx','.kml','.kmz','.bbl','.bfl','.skylog']);
+const isLogFile = (name) => { const dot = name.lastIndexOf('.'); return dot !== -1 && LOG_EXTENSIONS.has(name.slice(dot).toLowerCase()); };
+
 // ── Upload Drop Zone ──────────────────────────────────────────
 const UploadZone = ({ onUpload }) => {
   const [dragging, setDragging]   = useState(false);
@@ -1312,16 +1315,20 @@ const UploadZone = ({ onUpload }) => {
   const [newAcName, setNewAcName]       = useState('');
   const [newAcType, setNewAcType]       = useState('fixed_wing');
   // Duplicate detection
-  const [duplicate, setDuplicate]       = useState(null);   // {existing: {...}, aircraftId, file}
+  const [duplicate, setDuplicate]       = useState(null);
   const [pendingAircraftId, setPendingAircraftId] = useState(null);
-  const inputRef = useRef();
+  // Batch / folder import
+  const [pendingBatch, setPendingBatch] = useState(null); // {files: File[]}
+  const [batchAc, setBatchAc]           = useState('');
+  const [batchNewAcName, setBatchNewAcName] = useState('');
+  const [batchNewAcType, setBatchNewAcType] = useState('fixed_wing');
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchResults, setBatchResults] = useState(null); // [{filename, status, ...}]
+  const inputRef   = useRef();
+  const folderRef  = useRef();
   const { token } = useAuthStore();
 
-  const openPicker = async (file) => {
-    if (!file) return;
-    setPendingFile(file);
-    setSelectedAc('');
-    setNewAcName('');
+  const loadAircraft = async () => {
     setAircraftLoading(true);
     try {
       const r = await fetch('/api/v1/aircraft', { headers: { Authorization: `Bearer ${token}` } });
@@ -1329,6 +1336,71 @@ const UploadZone = ({ onUpload }) => {
       setAircraft(Array.isArray(d) ? d : []);
     } catch { setAircraft([]); }
     setAircraftLoading(false);
+  };
+
+  const openPicker = async (file) => {
+    if (!file) return;
+    setPendingFile(file);
+    setSelectedAc('');
+    setNewAcName('');
+    await loadAircraft();
+  };
+
+  const openFolderPicker = async (files) => {
+    const logFiles = Array.from(files).filter(f => isLogFile(f.name));
+    if (!logFiles.length) return;
+    logFiles.sort((a, b) => a.name.localeCompare(b.name));
+    setPendingBatch({ files: logFiles });
+    setBatchAc('');
+    setBatchNewAcName('');
+    setBatchResults(null);
+    await loadAircraft();
+  };
+
+  const startBatchUpload = async () => {
+    let aircraftId = null;
+    if (batchAc === 'new') {
+      if (!batchNewAcName.trim()) return;
+      try {
+        const r = await fetch('/api/v1/aircraft', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: batchNewAcName.trim(), type: batchNewAcType }),
+        });
+        const j = await r.json();
+        aircraftId = j.id || null;
+      } catch { /* proceed without */ }
+    } else if (batchAc) {
+      aircraftId = parseInt(batchAc, 10);
+    }
+    const { files } = pendingBatch;
+    setPendingBatch(null);
+    setBatchRunning(true);
+    setBatchResults(files.map(f => ({ filename: f.name, status: 'queued' })));
+    const fd = new FormData();
+    files.forEach(f => fd.append('logs[]', f));
+    if (aircraftId) fd.append('aircraft_id', aircraftId);
+    try {
+      const res = await fetch('/api/v1/flights/batch', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const json = await res.json();
+      if (json.results) {
+        setBatchResults(json.results.map(r => ({
+          filename: r.filename,
+          status: r.status,
+          msg: r.error || (r.status === 'duplicate' ? 'already imported' : r.flight_id ? `#${r.flight_id}` : ''),
+        })));
+        onUpload?.();
+      } else {
+        setBatchResults(files.map(f => ({ filename: f.name, status: 'error', msg: json.error || 'unknown error' })));
+      }
+    } catch (e) {
+      setBatchResults(files.map(f => ({ filename: f.name, status: 'error', msg: e.message })));
+    }
+    setBatchRunning(false);
   };
 
   const doUpload = async (file, aircraftId, force = false) => {
@@ -1550,19 +1622,140 @@ const UploadZone = ({ onUpload }) => {
       </div>
     )}
 
+    {/* Batch aircraft picker */}
+    {pendingBatch && (
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: 24, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+          <div style={{ width: 36, height: 36, background: 'rgba(139,92,246,0.15)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Plane size={18} color="#8B5CF6" />
+          </div>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-bright)' }}>Which aircraft for this batch?</div>
+            <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>{pendingBatch.files.length} log file{pendingBatch.files.length !== 1 ? 's' : ''} selected</div>
+          </div>
+        </div>
+
+        {aircraftLoading ? (
+          <div style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 16 }}>Loading fleet…</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: `1px solid ${batchAc === '' ? 'rgba(139,92,246,0.4)' : 'var(--border)'}`, background: batchAc === '' ? 'rgba(139,92,246,0.08)' : 'var(--bg-input)', cursor: 'pointer' }}>
+              <input type="radio" name="bac" value="" checked={batchAc === ''} onChange={() => setBatchAc('')} style={{ accentColor: '#8B5CF6' }} />
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Skip — don't assign an aircraft</span>
+            </label>
+            {aircraft.map(ac => (
+              <label key={ac.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: `1px solid ${batchAc === String(ac.id) ? 'rgba(139,92,246,0.4)' : 'var(--border)'}`, background: batchAc === String(ac.id) ? 'rgba(139,92,246,0.08)' : 'var(--bg-input)', cursor: 'pointer' }}>
+                <input type="radio" name="bac" value={ac.id} checked={batchAc === String(ac.id)} onChange={() => setBatchAc(String(ac.id))} style={{ accentColor: '#8B5CF6' }} />
+                <span style={{ fontSize: 20 }}>{AIRCRAFT_TYPES[ac.type]?.emoji || '✈'}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{ac.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{AIRCRAFT_TYPES[ac.type]?.label || ac.type}{ac.make ? ` · ${ac.make}` : ''}{ac.model ? ` ${ac.model}` : ''}</div>
+                </div>
+              </label>
+            ))}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: `1px solid ${batchAc === 'new' ? 'rgba(16,185,129,0.4)' : 'var(--border)'}`, background: batchAc === 'new' ? 'rgba(16,185,129,0.08)' : 'var(--bg-input)', cursor: 'pointer' }}>
+              <input type="radio" name="bac" value="new" checked={batchAc === 'new'} onChange={() => setBatchAc('new')} style={{ accentColor: '#10B981' }} />
+              <Plus size={16} color="#10B981" />
+              <span style={{ fontSize: 13, color: '#10B981', fontWeight: 600 }}>Create new aircraft</span>
+            </label>
+            {batchAc === 'new' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4, padding: '12px 14px', background: 'rgba(16,185,129,0.05)', borderRadius: 10, border: '1px solid rgba(16,185,129,0.2)' }}>
+                <div style={{ gridColumn: '1/-1' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600 }}>NAME *</div>
+                  <input value={batchNewAcName} onChange={e => setBatchNewAcName(e.target.value)} placeholder="e.g. Sky Surveyor 01" style={inp} autoFocus />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600 }}>TYPE</div>
+                  <select value={batchNewAcType} onChange={e => setBatchNewAcType(e.target.value)} style={inp}>
+                    {Object.entries(AIRCRAFT_TYPES).map(([k, v]) => (
+                      <option key={k} value={k}>{v.emoji} {v.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 14, padding: '8px 12px', background: 'var(--bg-input)', borderRadius: 8 }}>
+          Files: {pendingBatch.files.map(f => f.name).join(', ')}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={() => setPendingBatch(null)} style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '9px 18px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>
+            Cancel
+          </button>
+          <button onClick={startBatchUpload} disabled={batchAc === 'new' && !batchNewAcName.trim()}
+            style={{ background: '#8B5CF6', border: 'none', color: '#fff', padding: '9px 22px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700, opacity: (batchAc === 'new' && !batchNewAcName.trim()) ? 0.4 : 1 }}>
+            Import {pendingBatch.files.length} Log{pendingBatch.files.length !== 1 ? 's' : ''}
+          </button>
+        </div>
+      </div>
+    )}
+
+    {/* Batch results panel */}
+    {(batchRunning || batchResults) && !pendingBatch && (
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: 20, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-bright)' }}>
+            {batchRunning ? 'Importing batch…' : `Batch import complete`}
+          </div>
+          {!batchRunning && (
+            <button onClick={() => setBatchResults(null)} style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: 12 }}>Dismiss</button>
+          )}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto' }}>
+          {(batchResults || []).map((r, i) => {
+            const col = r.status === 'ok' ? '#10B981' : r.status === 'duplicate' ? '#F59E0B' : r.status === 'error' ? '#EF4444' : 'var(--text-faint)';
+            const icon = r.status === 'ok' ? '✓' : r.status === 'duplicate' ? '⊘' : r.status === 'error' ? '✗' : '…';
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8, background: 'var(--bg-input)' }}>
+                <span style={{ color: col, fontWeight: 700, fontSize: 14, width: 16, textAlign: 'center' }}>{icon}</span>
+                <span style={{ flex: 1, fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.filename}</span>
+                {r.msg && <span style={{ fontSize: 11, color: col, flexShrink: 0 }}>{r.msg}</span>}
+              </div>
+            );
+          })}
+        </div>
+        {!batchRunning && batchResults && (
+          <div style={{ display: 'flex', gap: 16, marginTop: 14, fontSize: 12, color: 'var(--text-muted)' }}>
+            <span style={{ color: '#10B981' }}>✓ {batchResults.filter(r=>r.status==='ok').length} imported</span>
+            {batchResults.filter(r=>r.status==='duplicate').length > 0 && <span style={{ color: '#F59E0B' }}>⊘ {batchResults.filter(r=>r.status==='duplicate').length} duplicates</span>}
+            {batchResults.filter(r=>r.status==='error').length > 0 && <span style={{ color: '#EF4444' }}>✗ {batchResults.filter(r=>r.status==='error').length} errors</span>}
+          </div>
+        )}
+      </div>
+    )}
+
     {/* Drop zone — hidden while picking aircraft or uploading */}
-    {!pendingFile && (
+    {!pendingFile && !pendingBatch && (
     <div
       onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); openPicker(e.dataTransfer.files[0]); }}
+      onDrop={(e) => {
+        e.preventDefault(); setDragging(false);
+        const files = e.dataTransfer.files;
+        if (files.length > 1) { openFolderPicker(files); }
+        else { openPicker(files[0]); }
+      }}
       onClick={() => !status && inputRef.current.click()}
       style={{ border: `2px dashed ${dragging ? '#3B82F6' : 'var(--border-tooltip)'}`, borderRadius: 16, padding: '40px 20px', textAlign: 'center', cursor: status ? 'default' : 'pointer', background: dragging ? 'rgba(59,130,246,0.05)' : 'var(--bg-card)', transition: 'all 0.2s' }}>
       <input ref={inputRef} type="file" accept=".bin,.tlog,.ulg,.ulog,.csv,.txt,.log,.gpx,.kml,.kmz,.bbl,.bfl,.skylog" hidden onChange={(e) => openPicker(e.target.files[0])} />
+      <input ref={folderRef} type="file" webkitdirectory="true" multiple hidden onChange={(e) => openFolderPicker(e.target.files)} />
       <Upload size={36} color="#3B82F6" style={{ margin: '0 auto 12px' }} />
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>Drop flight log or click to browse</div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
         ArduPilot .BIN · MAVLink .TLOG · PX4 .ULG · DJI .TXT/.CSV · GPX · KML · Betaflight .BBL · Skyline .SKYLOG
+      </div>
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+        <button onClick={(e) => { e.stopPropagation(); inputRef.current.click(); }}
+          style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)', color: '#60A5FA', padding: '8px 18px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+          Single File
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); folderRef.current.click(); }}
+          style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)', color: '#A78BFA', padding: '8px 18px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+          Import Folder
+        </button>
       </div>
       {status && (
         <div style={{ background: 'var(--border-subtle)', borderRadius: 10, padding: '10px 16px', marginTop: 12 }}>

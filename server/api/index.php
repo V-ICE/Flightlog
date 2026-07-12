@@ -73,6 +73,11 @@ try {
             echo json_encode(uploadFlight($user));
             break;
 
+        case 'POST:flights/batch':
+            $user = Auth::requireAuth();
+            echo json_encode(uploadFlightBatch($user));
+            break;
+
         case 'PUT:flights':
             $user = Auth::requireAuth();
             echo json_encode(updateFlight($user, $id, $body));
@@ -419,6 +424,100 @@ function uploadFlight(array $user): array {
     } catch (Exception $e) {
         return ['success' => false, 'flight_id' => $flightId, 'error' => $e->getMessage()];
     }
+}
+
+function uploadFlightBatch(array $user): array {
+    if (empty($_FILES['logs'])) {
+        http_response_code(400); return ['error' => 'No files uploaded'];
+    }
+
+    // Normalise PHP's multi-file array into a flat list of file entries
+    $raw = $_FILES['logs'];
+    $count = is_array($raw['name']) ? count($raw['name']) : 1;
+    $files = [];
+    for ($i = 0; $i < $count; $i++) {
+        if (is_array($raw['name'])) {
+            $files[] = [
+                'name'     => $raw['name'][$i],
+                'tmp_name' => $raw['tmp_name'][$i],
+                'size'     => $raw['size'][$i],
+                'error'    => $raw['error'][$i],
+            ];
+        } else {
+            $files[] = $raw;
+        }
+    }
+
+    $aircraftId = (int)($_POST['aircraft_id'] ?? 0) ?: null;
+    $maxBytes   = MAX_FILE_MB * 1024 * 1024;
+    $results    = [];
+    $processor  = new FlightProcessor();
+
+    foreach ($files as $file) {
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            $results[] = ['filename' => $file['name'], 'status' => 'error', 'error' => 'Upload error code ' . $file['error']];
+            continue;
+        }
+        if ($file['size'] > $maxBytes) {
+            $results[] = ['filename' => $file['name'], 'status' => 'error', 'error' => 'Exceeds ' . MAX_FILE_MB . 'MB limit'];
+            continue;
+        }
+
+        $uuid = Auth::generateUUID();
+        $dir  = UPLOAD_DIR . date('Y/m/') . $user['sub'] . '/';
+        if (!is_dir($dir)) mkdir($dir, 0755, true);
+        $storagePath = $dir . $uuid . '_' . basename($file['name']);
+
+        if (!move_uploaded_file($file['tmp_name'], $storagePath)) {
+            $results[] = ['filename' => $file['name'], 'status' => 'error', 'error' => 'Failed to store file'];
+            continue;
+        }
+
+        $hash = hash_file('sha256', $storagePath);
+        $dup  = DB::query(
+            "SELECT id, original_filename FROM flights WHERE user_id=? AND file_hash=?",
+            [$user['sub'], $hash]
+        )->fetch();
+
+        if ($dup) {
+            unlink($storagePath);
+            $results[] = ['filename' => $file['name'], 'status' => 'duplicate', 'existing_id' => $dup['id'], 'existing_name' => $dup['original_filename']];
+            continue;
+        }
+
+        $flightId = DB::insert('flights', [
+            'uuid'              => $uuid,
+            'user_id'           => $user['sub'],
+            'aircraft_id'       => $aircraftId,
+            'original_filename' => $file['name'],
+            'file_size'         => $file['size'],
+            'file_hash'         => $hash,
+            'storage_path'      => $storagePath,
+            'parse_status'      => 'pending',
+            'pilot_notes'       => '',
+            'tags'              => '[]',
+        ]);
+
+        try {
+            $processor->process($flightId, $storagePath, $file['name'], $user['sub']);
+            $flight = DB::query("SELECT parse_status, log_format FROM flights WHERE id=?", [$flightId])->fetch();
+            $results[] = [
+                'filename'  => $file['name'],
+                'status'    => 'ok',
+                'flight_id' => $flightId,
+                'parse_status' => $flight['parse_status'],
+                'format'    => $flight['log_format'],
+            ];
+        } catch (Exception $e) {
+            $results[] = ['filename' => $file['name'], 'status' => 'error', 'flight_id' => $flightId, 'error' => $e->getMessage()];
+        }
+    }
+
+    $ok    = count(array_filter($results, fn($r) => $r['status'] === 'ok'));
+    $dupes = count(array_filter($results, fn($r) => $r['status'] === 'duplicate'));
+    $errs  = count(array_filter($results, fn($r) => $r['status'] === 'error'));
+
+    return ['results' => $results, 'summary' => ['imported' => $ok, 'duplicates' => $dupes, 'errors' => $errs]];
 }
 
 function updateFlight(array $user, int $id, array $body): array {
