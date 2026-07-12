@@ -70,12 +70,11 @@ try {
 
         case 'POST:flights':
             $user = Auth::requireAuth();
-            echo json_encode(uploadFlight($user));
-            break;
-
-        case 'POST:flights/batch':
-            $user = Auth::requireAuth();
-            echo json_encode(uploadFlightBatch($user));
+            if (($parts[1] ?? '') === 'batch') {
+                echo json_encode(uploadFlightBatch($user));
+            } else {
+                echo json_encode(uploadFlight($user));
+            }
             break;
 
         case 'PUT:flights':
