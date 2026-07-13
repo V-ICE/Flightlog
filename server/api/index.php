@@ -452,13 +452,20 @@ function uploadFlightBatch(array $user): array {
     $results    = [];
     $processor  = new FlightProcessor();
 
-    foreach ($files as $file) {
+    // Relative paths sent alongside files (preserves subfolder context, e.g. "2024-05/logs/flight.bin")
+    $rawPaths = $_POST['log_paths'] ?? [];
+    if (!is_array($rawPaths)) $rawPaths = [$rawPaths];
+
+    foreach ($files as $i => $file) {
+        // Use the relative path label for display/storage if provided, otherwise filename
+        $displayName = !empty($rawPaths[$i]) ? $rawPaths[$i] : $file['name'];
+
         if ($file['error'] !== UPLOAD_ERR_OK) {
-            $results[] = ['filename' => $file['name'], 'status' => 'error', 'error' => 'Upload error code ' . $file['error']];
+            $results[] = ['filename' => $displayName, 'status' => 'error', 'error' => 'Upload error code ' . $file['error']];
             continue;
         }
         if ($file['size'] > $maxBytes) {
-            $results[] = ['filename' => $file['name'], 'status' => 'error', 'error' => 'Exceeds ' . MAX_FILE_MB . 'MB limit'];
+            $results[] = ['filename' => $displayName, 'status' => 'error', 'error' => 'Exceeds ' . MAX_FILE_MB . 'MB limit'];
             continue;
         }
 
@@ -468,7 +475,7 @@ function uploadFlightBatch(array $user): array {
         $storagePath = $dir . $uuid . '_' . basename($file['name']);
 
         if (!move_uploaded_file($file['tmp_name'], $storagePath)) {
-            $results[] = ['filename' => $file['name'], 'status' => 'error', 'error' => 'Failed to store file'];
+            $results[] = ['filename' => $displayName, 'status' => 'error', 'error' => 'Failed to store file'];
             continue;
         }
 
@@ -480,7 +487,7 @@ function uploadFlightBatch(array $user): array {
 
         if ($dup) {
             unlink($storagePath);
-            $results[] = ['filename' => $file['name'], 'status' => 'duplicate', 'existing_id' => $dup['id'], 'existing_name' => $dup['original_filename']];
+            $results[] = ['filename' => $displayName, 'status' => 'duplicate', 'existing_id' => $dup['id'], 'existing_name' => $dup['original_filename']];
             continue;
         }
 
@@ -488,7 +495,7 @@ function uploadFlightBatch(array $user): array {
             'uuid'              => $uuid,
             'user_id'           => $user['sub'],
             'aircraft_id'       => $aircraftId,
-            'original_filename' => $file['name'],
+            'original_filename' => $displayName,
             'file_size'         => $file['size'],
             'file_hash'         => $hash,
             'storage_path'      => $storagePath,
@@ -498,17 +505,17 @@ function uploadFlightBatch(array $user): array {
         ]);
 
         try {
-            $processor->process($flightId, $storagePath, $file['name'], $user['sub']);
+            $processor->process($flightId, $storagePath, $displayName, $user['sub']);
             $flight = DB::query("SELECT parse_status, log_format FROM flights WHERE id=?", [$flightId])->fetch();
             $results[] = [
-                'filename'  => $file['name'],
+                'filename'  => $displayName,
                 'status'    => 'ok',
                 'flight_id' => $flightId,
                 'parse_status' => $flight['parse_status'],
                 'format'    => $flight['log_format'],
             ];
         } catch (Exception $e) {
-            $results[] = ['filename' => $file['name'], 'status' => 'error', 'flight_id' => $flightId, 'error' => $e->getMessage()];
+            $results[] = ['filename' => $displayName, 'status' => 'error', 'flight_id' => $flightId, 'error' => $e->getMessage()];
         }
     }
 

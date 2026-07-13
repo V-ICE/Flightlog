@@ -1349,7 +1349,8 @@ const UploadZone = ({ onUpload }) => {
   const openFolderPicker = async (files) => {
     const logFiles = Array.from(files).filter(f => isLogFile(f.name));
     if (!logFiles.length) return;
-    logFiles.sort((a, b) => a.name.localeCompare(b.name));
+    // Sort by full relative path so files from the same subfolder are grouped
+    logFiles.sort((a, b) => (a.webkitRelativePath || a.name).localeCompare(b.webkitRelativePath || b.name));
     setPendingBatch({ files: logFiles });
     setBatchAc('');
     setBatchNewAcName('');
@@ -1374,11 +1375,17 @@ const UploadZone = ({ onUpload }) => {
       aircraftId = parseInt(batchAc, 10);
     }
     const { files } = pendingBatch;
+    // Build display labels using relative path (shows subfolder context)
+    const labels = files.map(f => f.webkitRelativePath || f.name);
     setPendingBatch(null);
     setBatchRunning(true);
-    setBatchResults(files.map(f => ({ filename: f.name, status: 'queued' })));
+    setBatchResults(labels.map(label => ({ filename: label, status: 'queued' })));
     const fd = new FormData();
-    files.forEach(f => fd.append('logs[]', f));
+    // Append each file; also send its relative path so the server can store a meaningful name
+    files.forEach((f, i) => {
+      fd.append('logs[]', f);
+      fd.append('log_paths[]', labels[i]);
+    });
     if (aircraftId) fd.append('aircraft_id', aircraftId);
     try {
       const res = await fetch('/api/v1/flights/batch', {
@@ -1388,17 +1395,17 @@ const UploadZone = ({ onUpload }) => {
       });
       const json = await res.json();
       if (json.results) {
-        setBatchResults(json.results.map(r => ({
-          filename: r.filename,
+        setBatchResults(json.results.map((r, i) => ({
+          filename: labels[i] || r.filename,
           status: r.status,
           msg: r.error || (r.status === 'duplicate' ? 'already imported' : r.flight_id ? `#${r.flight_id}` : ''),
         })));
         onUpload?.();
       } else {
-        setBatchResults(files.map(f => ({ filename: f.name, status: 'error', msg: json.error || 'unknown error' })));
+        setBatchResults(labels.map(label => ({ filename: label, status: 'error', msg: json.error || 'unknown error' })));
       }
     } catch (e) {
-      setBatchResults(files.map(f => ({ filename: f.name, status: 'error', msg: e.message })));
+      setBatchResults(labels.map(label => ({ filename: label, status: 'error', msg: e.message })));
     }
     setBatchRunning(false);
   };
